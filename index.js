@@ -1,6 +1,6 @@
 class LispSyntaxError extends Error {
     constructor(message, span) {
-        super(`${message} at ${span[0]}-${span[1]}`);
+        super(`${message} at ${span ? `${span[0]}-${span[1]}` : "unknown"}`);
         this.name = "LispSyntaxError";
         this.span = span;
     }
@@ -10,7 +10,7 @@ class LispSyntaxError extends Error {
 const isWhitespace = char => /[\s\n\r\t]/.test(char);
 
 /** Checks if a character can start an identifier */
-const isIdentifierStart = char => /[^()"\s\r\n\t]/.test(char);
+const isIdentifierStart = char => /[^()"\s\r\n\t;]/.test(char);
 
 /** Checks if a character is a digit */
 const isDigit = char => /\d/.test(char);
@@ -24,33 +24,98 @@ const readWhile = (input, predicate, start) => {
         str += input[end++];
     }
 
-    return { str, end };
+    return {
+        str,
+        end
+    };
 }
 
 /** Reads a string literal starting from a given index */
 const readString = (input, start) => {
-    let { str, end } = readWhile(input, char => char !== '"', start + 1);
+    let {
+        str,
+        end
+    } = readWhile(input, char => char !== '"', start + 1);
     if (end >= input.length || input[end] !== '"') {
         throw new LispSyntaxError("Unclosed string", [start, end]);
     }
-    return { type: 'string', value: str, span: [start, end + 1] };
+    return {
+        type: 'string',
+        value: str,
+        span: [start, end + 1]
+    };
 }
 
 /** Reads a number starting from a given index */
 const readNumber = (input, start) => {
-    const { str, end } = readWhile(input, isDigit, start);
-    return { type: 'number', value: Number(str), span: [start, end] };
+    const {
+        str,
+        end
+    } = readWhile(input, isDigit, start);
+    return {
+        type: 'number',
+        value: Number(str),
+        span: [start, end]
+    };
 };
 
 /** Reads an identifier starting from a given index */
 const readIdentifier = (input, start) => {
-    const { str, end } = readWhile(input, isIdentifierStart, start);
-    return { type: 'identifier', value: str, span: [start, end] };
+    const {
+        str,
+        end
+    } = readWhile(input, isIdentifierStart, start);
+    return {
+        type: 'identifier',
+        value: str,
+        span: [start, end]
+    };
 };
+
+/** Reads an atom starting from a given index */
+const readAtom = (input, start) => {
+    const {
+        str,
+        end
+    } = readWhile(input, isIdentifierStart, start + 1);
+
+    return {
+        type: 'atom',
+        value: str,
+        span: [start, end]
+    };
+};
+
+const translateToJS = (data) => {
+    switch (data.type) {
+        case 'identifier':
+            return data.value;
+        case 'number':
+            return data.value;
+        case 'list':
+            return data.elements.map(translateToJS);
+        case 'dict':
+            const result = {};
+            for (const [key, value] of Object.entries(data.elements)) {
+                result[translateToJS(key)] = translateToJS(value);
+            }
+            return result;
+        case 'string':
+            return data.value;
+        case 'atom':
+            return data.value;
+        default:
+            throw new Error(`Unknown type: ${data.type}`);
+    }
+}
 
 /** Returns a token with a given type */
 const token = type => (input, start) =>
-    ({ type, value: input[start], span: [start, start + 1] });
+({
+    type,
+    value: input[start],
+    span: [start, start + 1]
+});
 
 /** Tokenizes the input string */
 const tokenize = input => {
@@ -74,7 +139,18 @@ const tokenize = input => {
             continue
         }
 
+        if (input[i] == ';') {
+            let { end } = readWhile(input, x => x != '\n', i);
+            i = end;
+            continue
+        }
+
+        if (checkRun(char => char === '`', token('quasi-quote'))) continue;
+        if (checkRun(char => char === ',', token('unquote'))) continue;
+        if (checkRun(char => char === '\'', token('quote'))) continue;
+
         if (checkRun(isDigit, readNumber)) continue;
+        if (checkRun(x => x == ":", readAtom)) continue;
         if (checkRun(isIdentifierStart, readIdentifier)) continue;
         if (checkRun(char => char === '"', readString)) continue;
         if (checkRun(char => char === '(', token('lparen'))) continue;
@@ -87,7 +163,7 @@ const tokenize = input => {
 
 class LispParseError extends Error {
     constructor(message, span) {
-        super(`${message} at ${span[0]}-${span[1]}`);
+        super(`${message} at ${span ? `${span[0]}-${span[1]}` : "unknown"}`);
         this.name = "LispParseError";
         this.span = span;
     }
@@ -97,33 +173,64 @@ const parseToken = (tokens, pos) => {
     if (pos >= tokens.length) {
         throw new LispParseError("Unexpected end of input", [pos, pos]);
     }
-    return { node: tokens[pos], pos: pos + 1 };
+    return {
+        node: tokens[pos],
+        pos: pos + 1
+    };
 }
 
-const parseList = (tokens, pos) => {
+const parseList = (tokens, start, pos) => {
     let elements = [];
     pos += 1;
+
     while (pos < tokens.length) {
         if (tokens[pos].type === 'rparen') {
-            return { node: { type: 'list', elements, span: [tokens[pos].span[0], tokens[pos].span[1]] }, pos: pos + 1 };
+            return {
+                node: {
+                    type: 'list',
+                    elements,
+                    span: [start, tokens[pos].span[1]]
+                },
+                pos: pos + 1
+            };
         }
-        const { node, pos: newPos } = parseExpression(tokens, pos);
+        const {
+            node,
+            pos: newPos
+        } = parseExpression(tokens, pos);
         elements.push(node);
         pos = newPos;
     }
-    throw new LispParseError("Unclosed list", [tokens[pos - 1].span[0], tokens[pos - 1].span[1]]);
+
+    throw new LispParseError("Unclosed list", [start, tokens[pos - 1].span[1]]);
 }
 
 const parseExpression = (tokens, pos) => {
     let token = tokens[pos];
 
     if (token.type === 'lparen') {
-        return parseList(tokens, pos);
+        return parseList(tokens, token.span[0], pos);
     }
 
     // handle simple types
-    if (['identifier', 'number', 'string'].includes(token.type)) {
+    if (['identifier', 'number', 'string', 'atom'].includes(token.type)) {
         return parseToken(tokens, pos);
+    }
+
+    // handle simple types
+    if (['quote', 'unquote', 'quasi-quote'].includes(token.type)) {
+        let { node, pos: newPos } = parseExpression(tokens, pos + 1)
+        return {
+            node: {
+                type: 'list',
+                elements: [
+                    { type: 'identifier', value: token.type, span: token.span },
+                    node
+                ],
+                span: [pos, tokens[newPos].span[1]]
+            },
+            pos: newPos
+        };
     }
 
     throw new LispParseError(`Unexpected token '${token.type}'`, token.span);
@@ -135,7 +242,10 @@ const parse = tokens => {
     let pos = 0;
 
     while (pos < tokens.length) {
-        const { node, pos: newPos } = parseExpression(tokens, pos);
+        const {
+            node,
+            pos: newPos
+        } = parseExpression(tokens, pos);
         ast.push(node);
         pos = newPos;
     }
@@ -147,7 +257,7 @@ const parse = tokens => {
 
 class LispCompilationError extends Error {
     constructor(message, span) {
-        super(`${message} at ${span[0]}-${span[1]}`);
+        super(`${message} at ${span ? `${span[0]}-${span[1]}` : "unknown"}`);
         this.name = "LispCompilationError";
         this.span = span;
     }
@@ -162,13 +272,20 @@ const is = (node, typ) => {
 
 const atLeast = n => (args, span) => {
     if (args.length < n) {
-        throw new LispCompilationError(`expected at least \`${n}\` arguments but got \`${args.length}\``, span)
+        throw new LispCompilationError(`expected at least \`${n}\` arguments but got \`${args.length}\``,
+            span)
     }
 }
 
 const exactly = n => (args, span) => {
     if (args.length != n) {
         throw new LispCompilationError(`expected \`${n}\` arguments but got \`${args.length}\``, span)
+    }
+}
+
+const between = (m, n) => (args, span) => {
+    if (args.length < m || args.length > n) {
+        throw new LispCompilationError(`expected from \`${m}\` to ${n} arguments but got \`${args.length}\``, span)
     }
 }
 
@@ -183,12 +300,18 @@ const args = (node, fun) => {
 
 /** This function specializes nodes in the format (let ((name expr)*) expr*) */
 const specializeLet = (node) => {
-    let result = { type: 'let', params: [], body: [], span: node.span }
+    let result = {
+        type: 'let',
+        params: [],
+        body: [],
+        span: node.span
+    }
 
     let body = args(node, atLeast(3))
     body.shift() // Remove the first 'let'
 
-    let elems = is(body.shift(), 'list').elements
+    let elems = is(body.shift(), 'list')
+        .elements
 
     for (const elem of elems) {
         let newElems = args(elem, exactly(2))
@@ -215,6 +338,22 @@ const specializeBlock = (node) => {
     }
 }
 
+/** Specializes nodes in the format (set* name expr) */
+const specializeSetStar = (node) => {
+    let elems = args(node, exactly(3))
+    elems.shift() // Remove the first 'set*'
+
+    let name = is(elems.shift(), 'identifier')
+    let value = specializeExpr(elems.shift())
+
+    return {
+        type: 'set*',
+        name,
+        value,
+        span: node.span
+    }
+}
+
 /** Specializes nodes in the format (set name expr) */
 const specializeSet = (node) => {
     let elems = args(node, exactly(3))
@@ -226,22 +365,35 @@ const specializeSet = (node) => {
     return {
         type: 'set',
         name,
-        value, span: node.span
+        value,
+        span: node.span
     }
 }
 
 /** Specializes nodes in the format (fn (ident*) expr) */
 const specializeFn = (node) => {
-    let elems = args(node, exactly(3))
+    let elems = args(node, between(3, 4))
     elems.shift() // Remove the first 'fn'
 
-    let params = is(elems.shift(), 'list').elements.map(param => is(param, 'identifier'))
+    let fst = elems.shift();
+    let params;
+    let name;
+
+    if (fst.type != 'identifier') {
+        params = is(fst, 'list').elements.map(param => is(param, 'identifier'))
+    } else {
+        name = fst.value
+        params = is(elems.shift(), 'list').elements.map(param => is(param, 'identifier'))
+    }
+
     let body = specializeExpr(elems.shift())
 
     return {
         type: 'fn',
         params,
-        body, span: node.span
+        name,
+        body,
+        span: node.span
     }
 }
 
@@ -252,7 +404,21 @@ const specializeQuote = (node) => {
 
     return {
         type: 'quote',
-        value: elems.shift(), span: node.span
+        value: elems.shift(),
+        span: node.span
+    }
+}
+
+/** Specializes nodes in the format (while cond expr) */
+const specializeWhile = (node) => {
+    let body = args(node, atLeast(2))
+    body.shift() // Remove the first 'block'
+    let cond = specialize(body.shift())
+
+    return {
+        type: 'while',
+        cond,
+        body: body.map(specializeExpr)
     }
 }
 
@@ -265,43 +431,84 @@ const specializeMacro = (node) => {
 
     return {
         type: 'macro',
-        name, span: node.span
+        name,
+        span: node.span
     }
 }
 
 const specializeIf = (node) => {
-    let elems = args(node, exactly(4))
+    let elems = args(node, between(3, 4))
     elems.shift()
 
     let cond = specializeExpr(elems.shift())
     let thenBranch = specializeExpr(elems.shift())
-    let elseBranch = specializeExpr(elems.shift())
+    let elseBranch = elems.length == 0 ? mkNil() : specializeExpr(elems.shift())
 
     return {
         type: 'if',
         cond,
         then: thenBranch,
-        else: elseBranch, span: node.span
+        else: elseBranch,
+        span: node.span
     }
 }
+
+const mangle = (name) => {
+    let mangled = /^[a-zA-Z_$]/.test(name[0]) ?
+        name[0] :
+        '_' + name.charCodeAt(0)
+            .toString(16);
+
+    for (let i = 1; i < name.length; i++) {
+        const char = name[i];
+        if (/^[a-zA-Z0-9_$]$/.test(char)) {
+            mangled += char;
+        } else {
+            mangled += '_u' + char.charCodeAt(0)
+                .toString(16);
+        }
+    }
+
+    return "$" + mangled;
+};
 
 const specializeExpr = (node) => {
     switch (node.type) {
         case 'identifier':
         case 'string':
-        case 'number': return node
+        case 'number':
+        case 'atom':
+            return node
         case 'list': {
+            if (node.elements.length == 0) {
+                return node
+            }
+
             let nameExpr = args(node, atLeast(1))
             let name = is(nameExpr.shift(), 'identifier')
             switch (name.value) {
-                case 'let': return specializeLet(node)
-                case 'block': return specializeBlock(node)
-                case 'set': return specializeSet(node)
-                case 'fn': return specializeFn(node)
-                case 'quote': return specializeQuote(node)
-                case 'if': return specializeIf(node)
-                case 'macro': return specializeMacro(node)
-                default: return { type: 'app', name, params: nameExpr.map(specializeExpr), span: node.span }
+                case 'let':
+                    return specializeLet(node)
+                case 'block':
+                    return specializeBlock(node)
+                case 'set*':
+                    return specializeSetStar(node)
+                case 'set':
+                    return specializeSet(node)
+                case 'fn':
+                    return specializeFn(node)
+                case 'quote':
+                    return specializeQuote(node)
+                case 'while':
+                    return specializeWhile(node)
+                case 'if':
+                    return specializeIf(node)
+                case 'macro':
+                    return specializeMacro(node)
+                default:
+                    return {
+                        type: 'app', name, params: nameExpr.map(specializeExpr), span: node.span
+                    }
             }
         }
     }
@@ -314,308 +521,120 @@ const specialize = node => {
 
 // Checker
 
-const generate = (node, scope = new Set(), quote = false) => {
+const generate = (node, scope = new Map(), quote = false) => {
+    const uniqueName = (scope, name, l = 0) => {
+        let count = scope.get(name) - l || 0;
+        scope.set(name, count + 1);
+        return mangle(name) + (count > 0 ? count : '');
+    };
+
+    const getUnique = (name) => {
+        let count = scope.get(name) - 1 || 0;
+        return mangle(name) + (count > 0 ? count : '');
+    };
+
     switch (node.type) {
         case 'identifier':
-            if (quote) {
-                return JSON.stringify(node)
-            }
+            if (quote) return JSON.stringify(node);
 
             if (scope.has(node.value)) {
-                return node.value; // Local reference
+                return getUnique(node.value, 1); // Local reference
             } else {
-                return `__env.__find("${node.value}")`; // Global reference
+                return `__env.__find("${node.value}", ${JSON.stringify(node.span)})`; // Global reference
             }
+
         case 'string':
         case 'number':
+        case 'atom':
         case 'list':
-            return JSON.stringify(node)
+            return `(${JSON.stringify(node)})`
         case 'let':
+            const letScope = new Map(scope); // Create new scope for let block
+
             const letBindings = node.params.map(([name, value]) => {
-                const jsValue = generate(value, scope);
-                scope.add(name.value);
-                return `let ${name.value} = ${jsValue};`;
-            }).join(' ');
+                const jsValue = generate(value, letScope);
+                const uniqueVar = uniqueName(letScope, name.value);
+                return `let ${uniqueVar} = ${jsValue};`;
+            })
+                .join(' ');
 
-            const letBody = node.body.map(expr => generate(expr, scope)).join(' ');
-            return `(() => {${letBindings} return ${letBody})()`;
+            const letBody = node.body.map(expr => generate(expr, letScope));
+            return `(() => { ${letBindings} ${letBody.map((x, i) => i == letBody.length - 1 ? `return ${x}` : x).join(";")}; })()`;
 
+        case 'set':
+            if (scope.has(node.name.value)) {
+                return `(() => { ${uniqueName(scope, node.name.value, 1)} = ${generate(node.value, scope)}; return mkNil() })()`; // Local reference
+            } else {
+                throw new LispCompilationError(`cannot find variable \`${node.name.value}\``, node.name.span)
+            }
         case 'block':
             const blockBody = node.body.map((expr, index) => {
                 if (index === node.body.length - 1) {
                     return `return ${generate(expr, scope)};`;
                 }
                 return `${generate(expr, scope)};`;
-            }).join(' ');
+            })
+                .join(' ');
 
             return `(() => { ${blockBody} })()`;
 
-        case 'set':
+        case 'set*':
             const setValue = generate(node.value, scope);
-            return `(() => {__env.__values["${node.name.value}"] = {"value": ${setValue}};return __genNil()})()`;
+            return `(() => { __env.__values["${node.name.value}"] = { "value": ${setValue} }; return mkNil(); })()`;
 
         case 'fn':
-            const fnScope = new Set(scope);
+            const fnScope = new Map(scope);
 
-            const fnParams = node.params.map((param) => {
-                if (param.value.startsWith('&')) {
-                    fnScope.add(param.value.slice(1));
-                    return `let ${param.value.slice(1)} = {type: "list", elements: [...__args]};`;
-                } else {
-                    fnScope.add(param.value);
-                    return `let ${param.value} = __args.shift();`;
-                }
-            }).join(' ');
+            const fnParams = node.params.map(param => {
+                const paramName = param.value.startsWith('&') ?
+                    param.value.slice(1) :
+                    param.value;
 
-            const fnArgsCheck = node.params.some(param => param.value.startsWith('&'))
-                ? `__atLeastArgs(__args, ${node.params.length - 1}, ${JSON.stringify(node.span)});`
-                : `__exactArgs(__args, ${node.params.length}, ${JSON.stringify(node.span)});`;
+                fnScope.set(paramName, 0);
 
-            const fnBody2 = generate(node.body, fnScope);
+                return param.value.startsWith('&') ?
+                    `let ${uniqueName(fnScope, paramName)} = { type: "list", elements: [...__args] };` :
+                    `let ${uniqueName(fnScope, paramName)} = __args.shift();`;
+            })
+                .join(' ');
 
-            return `{ type: "closure", value: (__args) => {
-                    ${fnArgsCheck}
-                    ${fnParams}
-                    return ${fnBody2};
-                }}`;
+            const fnArgsCheck = node.params.some(param => param.value.startsWith('&')) ?
+                `atLeastArgs(__args, ${node.params.length - 1}, ${JSON.stringify(node.span)});` :
+                `exactArgs(__args, ${node.params.length}, ${JSON.stringify(node.span)});`;
+
+            const fnBody = generate(node.body, fnScope);
+
+            return `{ type: "closure"${node.name ? `, name: "${node.name}"` : ""}, value: (__args) => { ${fnArgsCheck} ${fnParams} return ${fnBody}; }}`;
 
         case 'if':
             const cond = generate(node.cond, scope);
             const thenBranch = generate(node.then, scope);
             const elseBranch = generate(node.else, scope);
-            return `(__toBool(${cond})) ? ${thenBranch} : ${elseBranch}`;
+            return `((toJSBool(${cond})) ? ${thenBranch} : ${elseBranch})`;
 
         case 'quote':
             return JSON.stringify(node.value);
 
         case 'macro':
-            return `(() => {__env.__values["${node.name.value}"].macro = true; return __genNil()})()`;
+            return `(() => {__env.__values["${node.name.value}"].macro = true; return mkNil()})()`;
 
         case 'app':
             const appName = generate(node.name, scope);
-            const appParams = node.params.map(param => generate(param, scope)).join(', ');
-            return `__call(${appName},[${appParams}], ${JSON.stringify(node.span)})`;
+            const appParams = node.params.map(param => generate(param, scope))
+                .join(', ');
+            return `call(${appName},[${appParams}], ${JSON.stringify(node.span)})`;
 
+        case 'while': {
+            const cond = generate(node.cond, scope);
+            const body = node.body.map(expr => generate(expr, scope)).join(';');
+            return `(() => { while (toJSBool(${cond})) { ${body} }; return mkNil(); })()`;
+        }
         default:
             throw new Error(`Unknown node type: ${node.type}`);
     }
 };
 
 // Runtime
-
-const __genTrue = () => ({ type: 'identifier', value: 'true' })
-const __genFalse = () => ({ type: 'identifier', value: 'false' })
-const __genNil = () => ({ type: 'list', elements: [] })
-const __genNum = (n) => ({ type: 'number', value: n })
-
-const __toBool = (arg) => {
-    switch (arg.type) {
-        case 'number': return arg.value != 0
-        case 'string': return arg.value.length != 0
-        case 'identifier': return arg.value != "false"
-    }
-}
-
-const __atLeastArgs = (args, n, span) => {
-    if (args.length < n) {
-        throw new LispCompilationError(`expected at least \`${n}\` arguments but got \`${args.length}\``, span)
-    }
-}
-
-
-const __exactArgs = (args, n, span) => {
-    if (args.length != n) {
-        throw new LispCompilationError(`expected \`${n}\` arguments but got \`${args.length}\``, span)
-    }
-}
-
-const __check = (arg, typ, span) => {
-    if (arg.type != typ) {
-        throw new LispCompilationError(`expected \`${typ}\` but got \`${arg.type}\``, span)
-    }
-    return arg
-}
-
-const __call = (arg, args, span) => {
-    if (arg.type != 'closure') {
-        throw new LispCompilationError(`cannot apply a \`${arg.type}\``, span)
-    }
-
-    return arg.value(args, span)
-}
-
-let toStr = (x) => {
-    switch (x?.type) {
-        case 'list': return `(${x.elements.map(toStr).join(" ")})`
-        case 'number': return x.value.toString()
-        case 'string': return JSON.stringify(x.value)
-        case 'identifier': return x.value
-        case 'closure': return '<closure>'
-        default: return `{${x}}`
-    }
-}
-
-const __env = {
-    __expanded: false,
-    __values: {
-        "cons?": {
-            value: {
-                type: 'closure', value: (args, span) => {
-                    __exactArgs(args, 1, span)
-                    let elem = args.shift();
-
-                    if (elem.type == 'list' && elem.elements.length > 0) {
-                        return __genTrue()
-                    } else {
-                        return __genFalse()
-                    }
-                }
-            }
-        },
-        "cons": {
-            value: {
-                type: 'closure', value: (args, span) => {
-                    __exactArgs(args, 2, span)
-
-                    let head = args.shift();
-                    let elem = args.shift();
-
-                    if (elem.type == 'list') {
-                        return { type: 'list', elements: [head, ...elem.elements], span: elem.span }
-                    } else {
-                        return { type: 'list', elements: [head, elem] }
-                    }
-                }
-            }
-        },
-        "head": {
-            value: {
-                type: 'closure', value: (args, span) => {
-                    __exactArgs(args, 1, span)
-
-                    let elem = args.shift();
-
-                    if (elem.type == 'list' && elem.elements.length > 0) {
-                        return elem.elements[0]
-                    } else {
-                        return __genNil()
-                    }
-                }
-            }
-        },
-        "tail": {
-            value: {
-                type: 'closure', value: (args, span) => {
-                    __exactArgs(args, 1, span)
-
-                    let elem = args.shift();
-
-                    if (elem.type == 'list' && elem.elements.length > 0) {
-                        let elements = [...elem.elements];
-                        elements.shift()
-                        return { type: 'list', elements, span: elem.span }
-                    } else {
-                        return __genFalse()
-                    }
-                }
-            }
-        },
-        "+": {
-            value: {
-                type: 'closure', value: (args, span) => {
-                    __exactArgs(args, 2, span)
-                    let a = __check(args.shift(), 'number');
-                    let b = __check(args.shift(), 'number');
-                    return __genNum(parseInt(a.value) + parseInt(b.value))
-                }
-            }
-        },
-        "-": {
-            value: {
-                type: 'closure', value: (args, span) => {
-                    __exactArgs(args, 2, span)
-                    let a = __check(args.shift(), 'number');
-                    let b = __check(args.shift(), 'number');
-                    return __genNum(parseInt(a.value) - parseInt(b.value))
-                }
-            }
-        },
-        "<": {
-            value: {
-                type: 'closure', value: (args, span) => {
-                    __exactArgs(args, 2, span)
-                    let a = __check(args.shift(), 'number');
-                    let b = __check(args.shift(), 'number');
-                    return a.value < b.value ? __genTrue() : __genFalse()
-                }
-            }
-        },
-        "check": {
-            value: {
-                type: 'closure', value: (args, span) => {
-                    __exactArgs(args, 2, span)
-                    let elem = args.shift();
-                    let type = __check(args.shift(), 'string');
-
-                    __check(elem, type.value)
-
-                    return __genNil()
-                }
-            }
-        },
-        "list": {
-            value: {
-                type: 'closure', value: (args) => {
-                    return { type: 'list', elements: args }
-                }
-            }
-        },
-        "print": {
-            value: {
-                type: 'closure', value: (args) => {
-                    console.log(args.map(toStr).join(" "))
-                    return __genNil()
-                }
-            }
-        },
-        "eq": {
-            value: {
-                type: 'closure', value: (args, span) => {
-                    __exactArgs(args, 2, span)
-
-                    let areEqual = (a, b) => {
-                        if (a.type !== b.type) {
-                            return false;
-                        }
-
-                        switch (a.type) {
-                            case 'list':
-                                if (a.elements.length !== b.elements.length) return false;
-                                return a.elements.every((el, idx) => areEqual(el, b.elements[idx]));
-                            case 'number':
-                            case 'string':
-                            case 'identifier':
-                                return a.value === b.value;
-                            case 'closure':
-                                return false; // closures are not comparable by value
-                            default:
-                                return false;
-                        }
-                    }
-
-                    return areEqual(args[0], args[1]) ? __genTrue() : __genFalse()
-                }
-            }
-        },
-    },
-    __find: (name) => {
-        if (!__env.__values[name]) {
-            throw new LispCompilationError(`cannot find variable \`${name}\``, [0, 0])
-        }
-
-        return __env.__values[name].value
-    }
-}
 
 // Expand
 
@@ -630,16 +649,26 @@ const expand = (node, first) => {
             return node
         }
         case 'string':
-        case 'number': return node
+        case 'atom':
+        case 'number':
+            return node
         case 'list': {
             let elements = node.elements.map((x, idx) => expand(x, idx == 0));
 
             if (elements.length > 0 && elements[0].type == 'closure') {
                 let args = [...elements]
                 args.shift()
-                return __call(elements[0], args, node.span)
+                let res = call(elements[0], args, node.span)
+
+                res.span = node.span
+
+                return res
             } else {
-                return { type: 'list', elements, span: node.span }
+                return {
+                    type: 'list',
+                    elements,
+                    span: node.span
+                }
             }
         }
     }
@@ -647,11 +676,697 @@ const expand = (node, first) => {
 
 // Error
 
+const indexToLineColumn = (input, index) => {
+    let line = 1,
+        column = 1;
+
+    for (let i = 0; i < index; i++) {
+        if (input[i] === '\n') {
+            line++;
+            column = 1; // reset column when newline is encountered
+        } else {
+            column++;
+        }
+    }
+
+    return {
+        line,
+        column
+    };
+};
+
+// It will be expanded in the future.
+const getSurroundingLines = (lines, start, _end) => {
+    const {
+        line: startLine
+    } = start;
+    const firstLine = Math.max(0, startLine);
+    const surroundingLines = [];
+    surroundingLines.push([firstLine, lines[firstLine - 1]])
+    return surroundingLines;
+};
+
+// Function to print lines with padding and format, adding error highlight
+const printSurroundingLinesWithHighlight = (surroundingLines, start, end) => {
+
+    const maxLineNum = Math.max(...surroundingLines.map(([line]) => line || 0));
+    const padding = String(maxLineNum)
+        .length;
+
+    surroundingLines.forEach(([line, text]) => {
+        const paddedLine = line ? String(line)
+            .padStart(padding, ' ') : ' '.repeat(padding);
+        console.log(`${paddedLine} | ${text}`);
+        if (line === start.line || line === end.line) {
+            const highlightStart = line === start.line ? start.column : 1;
+            const highlightEnd = line === end.line ? end.column - 1 : text.length;
+            const highlight = ' '.repeat(highlightStart - 1) + '^'.repeat(highlightEnd -
+                highlightStart + 1);
+            console.log(`${' '.repeat(padding)} | ${highlight}`);
+        }
+    });
+};
+
+// Runtime
+
+class LispRuntimeError extends Error {
+    constructor(message, span) {
+        super(`${message} at ${span && span.length == 2 ? `${span[0]}-${span[1]}` : "unknown"}`);
+        this.name = "LispRuntimeError";
+        this.span = span;
+    }
+}
+
+let toJSStr = (x) => {
+    switch (x?.type) {
+        case 'list':
+            return `(${x.elements.map(toJSStr).join(" ")})`
+        case 'number':
+            return x.value.toString()
+        case 'string':
+            return JSON.stringify(x.value)
+        case 'identifier':
+            return x.value
+        case 'atom':
+            return ":" + x.value
+        case 'closure':
+            return '<closure>'
+        case 'dict':
+            return `{${Object.values(x.elements).map(x => `${toJSStr(x.key)}: ${toJSStr(x.value)}`).join(", ")}}`
+        default:
+            return `{?}`
+    }
+}
+
+let getJSStr = (x) => {
+    switch (x?.type) {
+        case 'number':
+            return x.value.toString()
+        case 'string':
+        case 'identifier':
+        case 'atom':
+            return x.value
+        default:
+            return toJSStr(x)
+    }
+}
+
+const toJSBool = (arg) => {
+    switch (arg.type) {
+        case 'number':
+            return parseInt(arg.value) != 0
+        case 'string':
+            return arg.value.length != 0
+        case 'identifier':
+            return arg.value != "false"
+        case 'atom':
+            return arg.value != "false"
+        case 'list':
+            return arg.elements.length != 0
+    }
+    return true
+}
+
+/// true
+const mkTrue = () => ({
+    type: 'identifier',
+    value: 'true'
+})
+
+/// false
+const mkFalse = () => ({
+    type: 'identifier',
+    value: 'false'
+})
+
+/// true
+const mkBool = (bool) => bool ? mkTrue() : mkFalse()
+
+/// 1
+const mkNum = (value) => ({
+    type: 'number',
+    value
+})
+
+/// (1 2 3)
+const mkList = (elements) => ({
+    type: 'list',
+    elements
+})
+
+const mkDict = (elements) => ({
+    type: 'dict',
+    elements
+})
+
+/// ()
+const mkNil = () => ({
+    type: 'list',
+    elements: []
+})
+
+/// Strings
+const mkString = (value) => ({
+    type: 'string',
+    value
+})
+
+/// Strings
+const mkIdent = (value) => ({
+    type: 'identifier',
+    value
+})
+
+// Fast comparison string, its used like :name
+const mkAtom = (value) => ({
+    type: 'atom',
+    value
+})
+
+const atLeastArgs = (args, n, span) => {
+    if (args.length < n) {
+        throw new LispRuntimeError(`expected at least \`${n}\` arguments but got \`${args.length}\``,
+            span)
+    }
+}
+
+
+const exactArgs = (args, n, span) => {
+    if (args.length != n) {
+        throw new LispRuntimeError(`expected \`${n}\` arguments but got \`${args.length}\``, span)
+    }
+}
+
+const check = (arg, typ, span) => {
+    if (typ instanceof Array) {
+        if (!typ.includes(arg.type)) {
+            throw new LispRuntimeError(`expected \`${typ.join(", ")}\` but got \`${arg.type}\``, arg.span)
+        }
+    } else {
+        if (arg.type != typ) {
+            throw new LispRuntimeError(`expected \`${typ}\` but got \`${arg.type}\``, arg.span)
+        }
+    }
+    return arg
+}
+
+const call = (arg, args, span) => {
+
+    if (arg.type != 'closure') {
+        throw new LispRuntimeError(`cannot apply a \`${arg.type}\``, span)
+    }
+
+    if (!arg.prim) {
+        __env.__frames.push(arg.name ? arg.name : '[anonymous]')
+    }
+
+    let res = arg.value(args, span)
+
+    if (!arg.prim) {
+        __env.__frames.pop()
+    }
+
+    return res
+}
+
+// Primitives
+
+const compareNumbers = comparisonFn => (args, span) => {
+    exactArgs(args, 2, span);
+    let a = check(args.shift(), 'number');
+    let b = check(args.shift(), 'number');
+    return comparisonFn(a.value, b.value) ? mkTrue() : mkFalse();
+}
+
+const calculateNumbers = comparisonFn => (args, span) => {
+    atLeastArgs(args, 1, span)
+
+    let first = check(args.shift(), 'number');
+
+    let result = parseInt(first.value)
+
+    for (const arg of args) {
+        check(arg, 'number');
+        result = comparisonFn(result, arg.value)
+    }
+
+    return mkNum(result)
+}
+
+
+const calculateBool = comparisonFn => (args, span) => {
+    atLeastArgs(args, 1, span)
+
+    let result = toJSBool(args.shift());
+
+    for (const arg of args) {
+        result = comparisonFn(result, toJSBool(arg))
+    }
+
+    return mkBool(result)
+}
+
+const fn_cons = (args, span) => {
+    exactArgs(args, 2, span);
+    let head = args.shift();
+    let elem = args.shift();
+    if (elem.type == 'list') {
+        return {
+            type: 'list',
+            elements: [head, ...elem.elements],
+            span: elem.span
+        };
+    } else {
+        return {
+            type: 'list',
+            elements: [head, elem]
+        };
+    }
+}
+
+const fn_check = (args, span) => {
+    exactArgs(args, 2, span);
+    let elem = args.shift();
+    let type = check(args.shift(), 'string');
+    check(elem, type.value);
+    return mkNil();
+}
+
+const fn_list = (args) => {
+    return {
+        type: 'list',
+        elements: args
+    };
+}
+
+const fn_print = (args) => {
+    console.log(args.map(toJSStr)
+        .join(" "));
+    return mkNil();
+}
+
+const fn_is_cons = (args, span) => {
+    exactArgs(args, 1, span);
+    let elem = args.shift();
+    return mkBool(elem.type == 'list' && elem.elements.length > 0)
+}
+
+const fn_is_nil = (args, span) => {
+    exactArgs(args, 1, span);
+    let elem = args.shift();
+    return mkBool(elem.type == 'list' && elem.elements.length == 0)
+}
+
+const fn_head = (args, span) => {
+    exactArgs(args, 1, span);
+    let elem = args.shift();
+    if (elem.type == 'list' && elem.elements.length > 0) {
+        return elem.elements[0];
+    } else {
+        return mkNil();
+    }
+}
+
+const fn_string = (args, span) => {
+    exactArgs(args, 1, span);
+    let elem = args.shift();
+    return mkString(toJSStr(elem))
+}
+
+const fn_type = (args, span) => {
+    exactArgs(args, 1, span);
+    let elem = args.shift();
+    return mkString(elem.type)
+}
+
+const fn_tail = (args, span) => {
+    exactArgs(args, 1, span);
+    let elem = args.shift();
+    if (elem.type == 'list' && elem.elements.length > 0) {
+        let elements = [...elem.elements];
+        elements.shift();
+        return {
+            type: 'list',
+            elements,
+            span: elem.span
+        };
+    } else {
+        return mkFalse();
+    }
+}
+const areEqual = (a, b) => {
+    if (a.type !== b.type) {
+        return false;
+    }
+
+    switch (a.type) {
+        case 'list':
+            if (a.elements.length !== b.elements.length) return false;
+            return a.elements.every((el, idx) => areEqual(el, b.elements[idx]));
+        case 'number':
+        case 'string':
+        case 'identifier':
+        case 'atom':
+            return a.value === b.value;
+        case 'closure':
+            return false;
+        default:
+            return false;
+    }
+}
+
+const fn_eq = (args, span) => {
+    exactArgs(args, 2, span);
+    return mkBool(areEqual(args[0], args[1]))
+}
+
+const fn_neq = (args, span) => {
+    exactArgs(args, 2, span);
+    return mkBool(!areEqual(args[0], args[1]))
+}
+
+const fn_concat = (args, span) => {
+    atLeastArgs(args, 2, span);
+
+    let type = '';
+
+    let fst = args.shift();
+    type = fst.type;
+
+    let result = fst.value + args.map(arg => {
+        check(arg, type);
+        return arg.value;
+    }).join('');
+
+    if (fst.type == "string") {
+        return mkString(result)
+    } else {
+        return mkIdent(result)
+    }
+}
+
+const fn_indexOf = (args, span) => {
+    exactArgs(args, 2, span);
+    let str = check(args.shift(), 'string');
+    let substr = check(args.shift(), 'string');
+    return mkNum(str.value.indexOf(substr.value));
+}
+
+const fn_startsWith = (args, span) => {
+    exactArgs(args, 2, span);
+    let str = check(args.shift(), 'string');
+    let substr = check(args.shift(), 'string');
+    return mkBool(str.value.startsWith(substr.value))
+}
+
+const fn_substring = (args, span) => {
+    exactArgs(args, 3, span);
+    let str = check(args.shift(), 'string');
+    let start = check(args.shift(), 'number');
+    let length = check(args.shift(), 'number');
+    if (start.value < 0 || start.value >= str.value.length || length.value < 0) {
+        return mkNil();
+    }
+    return mkString(str.value.substring(start.value, start.value + length.value));
+}
+
+const fn_at = (args, span) => {
+    exactArgs(args, 2, span);
+    let str = check(args.shift(), ['string', 'list']);
+    let index = check(args.shift(), 'number');
+
+    if (str.type == 'list') {
+        if (index.value < 0 || index.value >= str.elements.length) {
+            return mkNil();
+        }
+        return str.elements[index.value];
+    } else {
+        if (index.value < 0 || index.value >= str.value.length) {
+            return mkNil();
+        }
+        return mkString(str.value.charAt(index.value));
+    }
+}
+
+const fn_length = (args, span) => {
+    exactArgs(args, 1, span);
+    let str = check(args.shift(), ['string', 'list']);
+
+    if (str.type == 'string') {
+        return mkNum(str.value.length);
+    }
+
+    return mkNum(str.elements.length);
+}
+
+const fn_atom = (args, span) => {
+    exactArgs(args, 1, span);
+
+    return mkAtom(getJSStr(args.shift()))
+}
+
+const fn_dict = (args, span) => {
+    if (args.length % 2 != 0) {
+        throw new LispRuntimeError(`expected an even number of arguments but got \`${args.length}\``, span)
+    }
+
+    let result = {}
+
+    let size = args.length / 2;
+    for (let i = 0; i < size; i++) {
+        let arg = args.shift()
+        let name = check(arg, ['atom', 'string', 'identifier'], arg.span)
+        let value = args.shift()
+        result[name.value] = { key: name, value }
+    }
+
+    return mkDict(result)
+}
+
+const fn_dict_insert = (args, span) => {
+    exactArgs(args, 3, span);
+    let dict = check(args.shift(), 'dict');
+    let key = check(args.shift(), ['atom', 'string', 'identifier']);
+    let value = args.shift();
+
+    let refkey = key.value;
+
+    if (!(key.value in dict.elements)) {
+        dict.elements[refkey] = { key, value };
+    } else {
+        dict.elements[refkey].value = value;
+    }
+
+    return mkNil();
+}
+
+
+const fn_dict_get = (args, span) => {
+    exactArgs(args, 2, span);
+    let dict = check(args.shift(), 'dict');
+    let key = check(args.shift(), ['atom', 'string', 'identifier']);
+
+    let refkey = key.value;
+
+    if (refkey in dict.elements) {
+        return dict.elements[refkey].value;
+    } else {
+        return mkNil();
+    }
+}
+
+const fn_dict_remove = (args, span) => {
+    exactArgs(args, 2, span);
+    let dict = check(args.shift(), 'dict');
+    let key = check(args.shift(), ['atom', 'string', 'identifier']);
+
+    let refkey = { type: key.type, value: key.value };
+
+    if (refkey in dict.value) {
+        delete dict.value[refkey];
+    }
+
+    return mkNil();
+}
+
+
+const fn_require = (args, span) => {
+    exactArgs(args, 1, span);
+    let str = check(args.shift(), 'string');
+
+    if (!__env.__files.has(str.value)) {
+        __env.__files.add(str.value)
+        let file = fs.readFileSync(str.value, { encoding: 'UTF-8' })
+        run(file)
+    }
+
+    return mkNil();
+}
+
+const fn_span = (args, span) => {
+    exactArgs(args, 1, span);
+
+    let expr = args[0]
+
+    if (expr.span) {
+        return mkList([mkNum(expr.span[0]), mkNum(expr.span[1])])
+    } else {
+        return mkNil()
+    }
+}
+
+const fn_throw = (args, span) => {
+    atLeast(args, 1, span);
+    let str = check(args.shift(), 'string');
+
+    let pos = (args.length > 0) ? args.shift() : mkNil()
+    let jsData = translateToJS(pos)
+
+    throw new LispRuntimeError(str.value, jsData)
+}
+
+const fn_apply = (args, span) => {
+    atLeast(args, 2, span);
+    let fn = check(args.shift(), 'closure');
+    let ls = check(args.shift(), 'list');
+
+    return call(fn, ls.elements)
+}
+
+const fn_eval = (args, span) => {
+    atLeast(args, 1, span);
+
+    let specialized = specialize(args.shift())
+    let code = generate(specialized)
+
+    return eval(code)
+}
+
+const fn_expand = (args, span) => {
+    atLeast(args, 1, span);
+
+    let expanded = args.shift();
+
+    do {
+        __env.__expanded = false
+        expanded = expand(expanded)
+    } while (__env.__expanded)
+
+    return expanded
+}
+
+const fn_dict_to_list = (args, span) => {
+    exactArgs(args, 1, span);
+    let dict = check(args.shift(), 'dict');
+
+    let result = [];
+
+    for (const key in dict.elements) {
+        let entry = dict.elements[key];
+        result.push({
+            type: 'list',
+            elements: [entry.key, entry.value]
+        });
+    }
+
+    return {
+        type: 'list',
+        elements: result
+    };
+}
+
+const fn_dict_of_list = (args, span) => {
+    exactArgs(args, 1, span);
+    let list = check(args.shift(), 'list');
+
+    let result = {
+        type: 'dict',
+        elements: {}
+    };
+
+    for (let entry of list.elements) {
+        if (check(entry, 'list').elements.length !== 2) {
+            throw new Error(`Invalid entry in list: ${entry}, expected a list of key-value pairs.`);
+        }
+
+        let key = entry.elements[0];
+        let value = entry.elements[1];
+
+        result.elements[key.value] = {
+            key: key,
+            value: value
+        };
+    }
+
+    return result;
+}
+
+const __env = {
+    __expanded: false,
+    __files: new Set(),
+    __values: {
+        "cons?": { value: { type: 'closure', prim: true, value: fn_is_cons } },
+        "nil?": { value: { type: 'closure', prim: true, value: fn_is_nil } },
+        "cons": { value: { type: 'closure', prim: true, value: fn_cons } },
+        "head": { value: { type: 'closure', prim: true, value: fn_head } },
+        "string": { value: { type: 'closure', prim: true, value: fn_string } },
+        "type": { value: { type: 'closure', prim: true, value: fn_type } },
+        "tail": { value: { type: 'closure', prim: true, value: fn_tail } },
+        "apply": { value: { type: 'closure', prim: true, value: fn_apply } },
+        "eval": { value: { type: 'closure', prim: true, value: fn_eval } },
+        "expand": { value: { type: 'closure', prim: true, value: fn_expand } },
+        "+": { value: { type: 'closure', prim: true, value: calculateNumbers((x, y) => x + y) } },
+        "-": { value: { type: 'closure', prim: true, value: calculateNumbers((x, y) => x - y) } },
+        "<": { value: { type: 'closure', prim: true, value: compareNumbers((x, y) => x < y) } },
+        ">": { value: { type: 'closure', prim: true, value: compareNumbers((x, y) => x > y) } },
+        ">=": { value: { type: 'closure', prim: true, value: compareNumbers((x, y) => x >= y) } },
+        "<=": { value: { type: 'closure', prim: true, value: compareNumbers((x, y) => x <= y) } },
+
+        "list": { value: { type: 'closure', prim: true, value: fn_list } },
+        "print": { value: { type: 'closure', prim: true, value: fn_print } },
+        "=": { value: { type: 'closure', prim: true, value: fn_eq } },
+        "!=": { value: { type: 'closure', prim: true, value: fn_neq } },
+
+        "*": { value: { type: 'closure', prim: true, value: calculateNumbers((x, y) => x * y) } },
+        "/": { value: { type: 'closure', prim: true, value: calculateNumbers((x, y) => Math.floor(x / y)) } },
+
+        "length": { value: { type: 'closure', prim: true, value: fn_length } },
+        "atom": { value: { type: 'closure', prim: true, value: fn_atom } },
+        "at": { value: { type: 'closure', prim: true, value: fn_at } },
+
+        "string/substring": { value: { type: 'closure', prim: true, value: fn_substring } },
+        "string/indexOf": { value: { type: 'closure', prim: true, value: fn_indexOf } },
+        "string/starts": { value: { type: 'closure', prim: true, value: fn_startsWith } },
+        "concat": { value: { type: 'closure', prim: true, value: fn_concat } },
+
+        "check": { value: { type: 'closure', prim: true, value: fn_check } },
+        "span": { value: { type: 'closure', prim: true, value: fn_span } },
+        "throw": { value: { type: 'closure', prim: true, value: fn_throw } },
+
+        "dict": { value: { type: 'closure', prim: true, value: fn_dict } },
+        "dict/set": { value: { type: 'closure', prim: true, value: fn_dict_insert } },
+        "dict/get": { value: { type: 'closure', prim: true, value: fn_dict_get } },
+        "dict/remove": { value: { type: 'closure', prim: true, value: fn_dict_remove } },
+        "dict/to-list": { value: { type: 'closure', prim: true, value: fn_dict_to_list } },
+        "dict/of-list": { value: { type: 'closure', prim: true, value: fn_dict_of_list } },
+        "require": { value: { type: 'closure', prim: true, value: fn_require } },
+
+    },
+    __frames: [],
+    __find: (name, span) => {
+        if (!__env.__values[name]) {
+            throw new LispRuntimeError(`cannot find variable \`${name}\``, span)
+        }
+
+        return __env.__values[name].value
+    }
+}
 
 // Test
 
 const run = (input) => {
     let l = tokenize(input)
+
     let parts = parse(l)
 
     try {
@@ -664,56 +1379,58 @@ const run = (input) => {
             } while (__env.__expanded)
 
             let specialized = specialize(expanded)
+
             let code = generate(specialized)
 
             eval(code)
         }
     } catch (err) {
-        if (err instanceof LispSyntaxError || err instanceof LispCompilationError || err instanceof LispParseError) {
+        if (err instanceof LispSyntaxError || err instanceof LispCompilationError ||
+            err instanceof LispParseError || err instanceof LispRuntimeError) {
+            console.error("")
             console.error(err.message)
+            console.error("")
+
+            if (err.span) {
+                let lines = input.split("\n")
+                let start = indexToLineColumn(input, err.span[0])
+                let end = indexToLineColumn(input, err.span[1])
+
+                let selected = getSurroundingLines(lines, start, end);
+                printSurroundingLinesWithHighlight(selected, start, end);
+                console.error("")
+            }
+
+            console.log(`callstack of ${__env.__frames.length} frames:`)
+            if (__env.__frames.length > 0) {
+                for (const frame of __env.__frames) {
+                    console.error("   --> " + frame)
+                }
+            }
+            console.error("")
+
         } else {
             throw err
         }
     }
 }
 
+const fs = require('fs');
 
-run(`
-(set map (fn (f expr)
-    (block
-        (check f "closure")
-        (check expr "list")
-        (if (cons? expr)
-            (cons (f (head expr)) (map f (tail expr)))
-            expr))))
+const cmdArgs = process.argv.slice(2);
 
-(set quasi-quote (fn (expr)
-    (if (cons? expr)
-        (if (eq (quote unquote) (head expr))
-            (head (tail expr))
-            (cons (quote list) (map quasi-quote expr)))
-        (list (quote quote) expr))))
+if (cmdArgs.length < 1) {
+    console.error('usage: lovelace <path>');
+    process.exit(1);
+}
 
-(macro quasi-quote)
+const fileName = cmdArgs[0];
 
-(set def-macro (fn (name args body)
-    (quasi-quote
-        (block
-            (set (unquote name) (fn (unquote args) (unquote body)))
-            (macro (unquote name))))))
+fs.readFile(fileName, 'utf8', (err, data) => {
+    if (err) {
+        console.error(`Error reading file: ${err.message}`);
+        process.exit(1);
+    }
 
-(macro def-macro)
-
-(def-macro defn (name args &body)
-    (quasi-quote
-        (set (unquote name) (fn (unquote args) (unquote (cons (quote block) body))))))
-
-(macro defn)
-
-(defn fib (num)
-    (if (< num 2)
-        num
-        (+ (fib (- num 1)) (fib (- num 2)))))
-
-(print (fib 10))
-`)
+    run(data);
+});
