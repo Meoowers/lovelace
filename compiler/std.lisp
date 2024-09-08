@@ -16,6 +16,16 @@
             (cons (f (head list) index) (map-idx (tail list) f (+ index 1)))
             list))))
 
+(set* reverse/inner (fn reverse/inner (list acc)
+    (if (cons? list)
+        (reverse/inner (tail list) (cons (head list) acc))
+        acc)))
+
+(set* reverse (fn reverse (list)
+    (block
+        (check list "list")
+        (reverse/inner list ()))))
+
 ; Filters a list `list` based on a predicate `pred`.
 (set* filter (fn filter (list pred)
     (block
@@ -97,6 +107,24 @@
 
 (macro and)
 
+; Logical `or` macro that evaluates multiple conditions.
+(set* or (fn (&args)
+    (if (cons? args)
+        `(if ,(head args) :true ,(apply or (tail args)))
+        :false)))
+
+(macro or)
+
+; Unless defines the unless function that is used as if (not condition).
+(defm unless (condition &body)
+    `(if (not ,condition)
+        ,(cons :block body)))
+
+; Unless defines the unless function that is used as if (condition).
+(defm when (condition &body)
+    `(if (,condition)
+        ,(cons :block body)))
+
 ; Helper function to compile a switch case arm.
 (defn switch/arm (c acc arm)
     (check arm "list")
@@ -119,7 +147,7 @@
     (check arm "list")
 
     (if (!= (length arm) 2)
-        (throw (concat "Expected 2 arguments") (span arm)))
+        (throw (concat "Expected 2 arguments but got " (string (length arm))) (span arm)))
 
     (let ((condition (at arm 0))
           (evaluator (at arm 1)))
@@ -128,7 +156,7 @@
 
 ; Macro for defining conditional expressions (`cond`).
 (defm cond (&arms)
-    (fold arms `(throw (concat "no match ")) cond/arm))
+    (fold (reverse arms) `(throw (concat "cond: no match")) cond/arm))
 
 ; Compiles a list pattern for the `case` macro.
 (defn case/compile-list (place pattern defs)
@@ -172,17 +200,43 @@
     (let ((body (foldr arms `(throw (concat "no match!")) (fn (acc arm) (case/arm `__c acc arm)))))
     `(let ((__c ,d)) ,body)))
 
-; Unless defines the unless function that is used as if (not condition).
-(defm unless (condition &body)
-    `(if (not ,condition)
-        (block ,@body)))
-
-; Unless defines the unless function that is used as if (condition).
-(defm when (condition &body)
-    `(if (,condition)
-        (block ,@body)))
-
 (defm def-record (name &fields)
     (let ((mk `(defn ,(concat name '/mk) ,fields (dict/of-list ,(cons 'list (map fields (fn (x) `(list ,(atom x) ,x)))))))
-          (fields (map fields (fn (field) `(defn ,(concat name '/ field) (data) (dict/get data ,(atom field)))))))
-         (cons 'block (cons mk fields))))
+          (get-fields (map fields (fn (field) `(defn ,(concat name '/ field) (data) (dict/get data ,(atom field))))))
+          (set-fields (map fields (fn (field) `(defn ,(concat name '/ field '/set) (dict data) (dict/set dict ,(atom field) data)))))
+          (rest (concat set-fields get-fields)))
+         (cons 'block (cons mk rest))))
+
+(defm def-external (name params ret str)
+    (check name "identifier")
+    (check params "list")
+    (check ret "identifier")
+    (check str "string")
+
+    (map params (fn (arm) (block
+        (if (!= (length arm) 2)
+            (throw (concat "Expected 2 arguments") (span arm)))
+
+        (check (at arm 0) "identifier")
+        (check (at arm 1) "identifier"))))
+
+    (let ((params (map params (fn (x) (at x 0)))))
+    `(defn ,name ,params
+        (block
+            (unsafe-from-js-obj ,(cons 'unsafe-eval (cons str params)) ,(string ret))))))
+
+(def-external prim_add ((a number) (b number)) number
+    "(x, y) => x + y")
+
+(defn + (x &rest)
+    (check x "number")
+    (let ((result x)
+          (index 0))
+
+    (while (< index (length rest))
+        (set result (prim_add result (at rest index)))
+        (set index (prim_add index 1)))
+
+    result))
+
+(print (+ 1 2 3))

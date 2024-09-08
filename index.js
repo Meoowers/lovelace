@@ -1,6 +1,13 @@
 class LispSyntaxError extends Error {
     constructor(message, span) {
-        super(`${message} at ${span ? `${span[0]}-${span[1]}` : "unknown"}`);
+        let complement = "";
+
+        if (span) {
+            let newSpan = indexToLineColumn(__env.__current[1], span[0]);
+            complement = ` at ${__env.__current[0]}:${newSpan.line}:${newSpan.column}`;
+        }
+
+        super(`${message}${complement}`);
         this.name = "LispSyntaxError";
         this.span = span;
     }
@@ -14,6 +21,25 @@ const isIdentifierStart = char => /[^()"\s\r\n\t;]/.test(char);
 
 /** Checks if a character is a digit */
 const isDigit = char => /\d/.test(char);
+
+const indexToLineColumn = (input, index) => {
+    let line = 1,
+        column = 1;
+
+    for (let i = 0; i < index; i++) {
+        if (input[i] === '\n') {
+            line++;
+            column = 1;
+        } else {
+            column++;
+        }
+    }
+
+    return {
+        line,
+        column
+    };
+};
 
 /** Reads characters while predicate is true, starting from index */
 const readWhile = (input, predicate, start) => {
@@ -30,21 +56,68 @@ const readWhile = (input, predicate, start) => {
     };
 }
 
-/** Reads a string literal starting from a given index */
+/** Reads a string literal starting from a given index, supporting escape sequences and Unicode */
 const readString = (input, start) => {
-    let {
-        str,
-        end
-    } = readWhile(input, char => char !== '"', start + 1);
-    if (end >= input.length || input[end] !== '"') {
-        throw new LispSyntaxError("Unclosed string", [start, end]);
+    let str = '';
+    let i = start + 1;  // Start after the opening quote
+    let escaped = false;  // Tracks if the previous character was a backslash
+
+    while (i < input.length) {
+        let char = input[i];
+
+        if (escaped) {
+            // Handle escape sequences
+            switch (char) {
+                case 'n':
+                    str += '\n';
+                    break;
+                case 't':
+                    str += '\t';
+                    break;
+                case 'r':
+                    str += '\r';
+                    break;
+                case '\\':
+                    str += '\\';
+                    break;
+                case '"':
+                    str += '"';
+                    break;
+                case 'u': {
+                    // Handle Unicode escape sequences: \uXXXX
+                    let unicode = input.slice(i + 1, i + 5);
+                    if (/^[0-9a-fA-F]{4}$/.test(unicode)) {
+                        str += String.fromCharCode(parseInt(unicode, 16));
+                        i += 4;  // Move past the Unicode sequence
+                    } else {
+                        throw new LispSyntaxError("Invalid Unicode escape", [start, i]);
+                    }
+                    break;
+                }
+                default:
+                    str += char;
+                    break;
+            }
+            escaped = false;
+        } else if (char === '\\') {
+            escaped = true;  // Next character will be part of an escape sequence
+        } else if (char === '"') {
+            // Closing quote found, return the string
+            return {
+                type: 'string',
+                value: str,
+                span: [start, i + 1]
+            };
+        } else {
+            str += char;
+        }
+
+        i++;
     }
-    return {
-        type: 'string',
-        value: str,
-        span: [start, end + 1]
-    };
-}
+
+    // If we reach here, the string was never closed
+    throw new LispSyntaxError("Unclosed string", [start, i]);
+};
 
 /** Reads a number starting from a given index */
 const readNumber = (input, start) => {
@@ -147,6 +220,7 @@ const tokenize = input => {
 
         if (checkRun(char => char === '`', token('quasi-quote'))) continue;
         if (checkRun(char => char === ',', token('unquote'))) continue;
+        if (checkRun(char => char === '@', token('unsplice-quote'))) continue;
         if (checkRun(char => char === '\'', token('quote'))) continue;
 
         if (checkRun(isDigit, readNumber)) continue;
@@ -161,17 +235,9 @@ const tokenize = input => {
     return tokens;
 };
 
-class LispParseError extends Error {
-    constructor(message, span) {
-        super(`${message} at ${span ? `${span[0]}-${span[1]}` : "unknown"}`);
-        this.name = "LispParseError";
-        this.span = span;
-    }
-}
-
 const parseToken = (tokens, pos) => {
     if (pos >= tokens.length) {
-        throw new LispParseError("Unexpected end of input", [pos, pos]);
+        throw new LispSyntaxError("Unexpected end of input", [pos, pos + 1]);
     }
     return {
         node: tokens[pos],
@@ -202,7 +268,7 @@ const parseList = (tokens, start, pos) => {
         pos = newPos;
     }
 
-    throw new LispParseError("Unclosed list", [start, tokens[pos - 1].span[1]]);
+    throw new LispSyntaxError("Unclosed list", [start, tokens[pos - 1].span[1]]);
 }
 
 const parseExpression = (tokens, pos) => {
@@ -218,7 +284,7 @@ const parseExpression = (tokens, pos) => {
     }
 
     // handle simple types
-    if (['quote', 'unquote', 'quasi-quote'].includes(token.type)) {
+    if (['quote', 'unquote', 'quasi-quote', 'unsplice-quote'].includes(token.type)) {
         let { node, pos: newPos } = parseExpression(tokens, pos + 1)
         return {
             node: {
@@ -233,7 +299,7 @@ const parseExpression = (tokens, pos) => {
         };
     }
 
-    throw new LispParseError(`Unexpected token '${token.type}'`, token.span);
+    throw new LispSyntaxError(`unexpected token '${token.type}'`, token.span);
 }
 
 /** Parses a list of tokens into an abstract syntax tree (AST) */
@@ -257,7 +323,15 @@ const parse = tokens => {
 
 class LispCompilationError extends Error {
     constructor(message, span) {
-        super(`${message} at ${span ? `${span[0]}-${span[1]}` : "unknown"}`);
+        let complement = "";
+
+        if (span) {
+            let newSpan = indexToLineColumn(__env.__current[1], span[0]);
+            complement = `${newSpan.line}:${newSpan.column}`;
+        }
+
+
+        super(`${message} at ${__env.__current[0]}:${complement}`);
         this.name = "LispCompilationError";
         this.span = span;
     }
@@ -380,6 +454,7 @@ const specializeFn = (node) => {
     let name;
 
     if (fst.type != 'identifier') {
+        args(node, exactly(3))
         params = is(fst, 'list').elements.map(param => is(param, 'identifier'))
     } else {
         name = fst.value
@@ -565,7 +640,7 @@ const generate = (node, scope = new Map(), quote = false) => {
             if (scope.has(node.name.value)) {
                 return `(() => { ${uniqueName(scope, node.name.value, 1)} = ${generate(node.value, scope)}; return mkNil() })()`; // Local reference
             } else {
-                throw new LispCompilationError(`cannot find variable \`${node.name.value}\``, node.name.span)
+                throw new LispCompilationError(`compilation error: cannot find variable \`${node.name.value}\``, node.name.span)
             }
         case 'block':
             const blockBody = node.body.map((expr, index) => {
@@ -599,12 +674,12 @@ const generate = (node, scope = new Map(), quote = false) => {
                 .join(' ');
 
             const fnArgsCheck = node.params.some(param => param.value.startsWith('&')) ?
-                `atLeastArgs(__args, ${node.params.length - 1}, ${JSON.stringify(node.span)});` :
-                `exactArgs(__args, ${node.params.length}, ${JSON.stringify(node.span)});`;
+                `atLeastArgs(__args, ${node.params.length - 1}, ${JSON.stringify(node.span)}, ${node.name ? `"${node.name}"` : ""});` :
+                `exactArgs(__args, ${node.params.length}, ${JSON.stringify(node.span)}, ${node.name ? `"${node.name}"` : ""});`;
 
             const fnBody = generate(node.body, fnScope);
 
-            return `{ type: "closure"${node.name ? `, name: "${node.name}"` : ""}, value: (__args) => { ${fnArgsCheck} ${fnParams} return ${fnBody}; }}`;
+            return `({ type: "closure"${node.name ? `, name: "${node.name}"` : ""}, value: (__args) => { ${fnArgsCheck} ${fnParams} return ${fnBody}; }})`;
 
         case 'if':
             const cond = generate(node.cond, scope);
@@ -676,25 +751,6 @@ const expand = (node, first) => {
 
 // Error
 
-const indexToLineColumn = (input, index) => {
-    let line = 1,
-        column = 1;
-
-    for (let i = 0; i < index; i++) {
-        if (input[i] === '\n') {
-            line++;
-            column = 1; // reset column when newline is encountered
-        } else {
-            column++;
-        }
-    }
-
-    return {
-        line,
-        column
-    };
-};
-
 // It will be expanded in the future.
 const getSurroundingLines = (lines, start, _end) => {
     const {
@@ -706,33 +762,19 @@ const getSurroundingLines = (lines, start, _end) => {
     return surroundingLines;
 };
 
-// Function to print lines with padding and format, adding error highlight
-const printSurroundingLinesWithHighlight = (surroundingLines, start, end) => {
-
-    const maxLineNum = Math.max(...surroundingLines.map(([line]) => line || 0));
-    const padding = String(maxLineNum)
-        .length;
-
-    surroundingLines.forEach(([line, text]) => {
-        const paddedLine = line ? String(line)
-            .padStart(padding, ' ') : ' '.repeat(padding);
-        console.log(`${paddedLine} | ${text}`);
-        if (line === start.line || line === end.line) {
-            const highlightStart = line === start.line ? start.column : 1;
-            const highlightEnd = line === end.line ? end.column - 1 : text.length;
-            const highlight = ' '.repeat(highlightStart - 1) + '^'.repeat(highlightEnd -
-                highlightStart + 1);
-            console.log(`${' '.repeat(padding)} | ${highlight}`);
-        }
-    });
-};
-
 // Runtime
 
 class LispRuntimeError extends Error {
-    constructor(message, span) {
-        super(`${message} at ${span && span.length == 2 ? `${span[0]}-${span[1]}` : "unknown"}`);
-        this.name = "LispRuntimeError";
+    constructor(message, span, file) {
+        let complement = "";
+
+        if (span) {
+            let newSpan = indexToLineColumn(__env.__current[1], span[0]);
+            complement = `at ${file || __env.__current[0]}:${newSpan.line}:${newSpan.column}`;
+        }
+
+        super(`${message} ${complement}`);
+        this.name = "LispSyntaxError";
         this.span = span;
     }
 }
@@ -741,6 +783,8 @@ let toJSStr = (x) => {
     switch (x?.type) {
         case 'list':
             return `(${x.elements.map(toJSStr).join(" ")})`
+        case 'array':
+            return `(array ${x.elements.map(toJSStr).join(" ")})`
         case 'number':
             return x.value.toString()
         case 'string':
@@ -752,7 +796,7 @@ let toJSStr = (x) => {
         case 'closure':
             return '<closure>'
         case 'dict':
-            return `{${Object.values(x.elements).map(x => `${toJSStr(x.key)}: ${toJSStr(x.value)}`).join(", ")}}`
+            return `(dict ${Object.values(x.elements).map(x => `(${toJSStr(x.key)} ${toJSStr(x.value)})`).join(" ")})`
         default:
             return `{?}`
     }
@@ -782,6 +826,7 @@ const toJSBool = (arg) => {
         case 'atom':
             return arg.value != "false"
         case 'list':
+        case 'array':
             return arg.elements.length != 0
     }
     return true
@@ -843,17 +888,17 @@ const mkAtom = (value) => ({
     value
 })
 
-const atLeastArgs = (args, n, span) => {
+const atLeastArgs = (args, n, span, n2) => {
     if (args.length < n) {
-        throw new LispRuntimeError(`expected at least \`${n}\` arguments but got \`${args.length}\``,
+        throw new LispRuntimeError(`expected at least \`${n}\` arguments but got \`${args.length}\` at ${n2}`,
             span)
     }
 }
 
 
-const exactArgs = (args, n, span) => {
+const exactArgs = (args, n, span, n2) => {
     if (args.length != n) {
-        throw new LispRuntimeError(`expected \`${n}\` arguments but got \`${args.length}\``, span)
+        throw new LispRuntimeError(`expected \`${n}\` arguments but got \`${args.length}\` at ${n2}`, span)
     }
 }
 
@@ -871,13 +916,12 @@ const check = (arg, typ, span) => {
 }
 
 const call = (arg, args, span) => {
+    if (!arg.prim) {
+        __env.__frames.push([arg.name ? arg.name : '[anonymous]', __env.__current[0], span])
+    }
 
     if (arg.type != 'closure') {
         throw new LispRuntimeError(`cannot apply a \`${arg.type}\``, span)
-    }
-
-    if (!arg.prim) {
-        __env.__frames.push(arg.name ? arg.name : '[anonymous]')
     }
 
     let res = arg.value(args, span)
@@ -891,15 +935,15 @@ const call = (arg, args, span) => {
 
 // Primitives
 
-const compareNumbers = comparisonFn => (args, span) => {
-    exactArgs(args, 2, span);
-    let a = check(args.shift(), 'number');
-    let b = check(args.shift(), 'number');
+const compareNumbers = (comparisonFn, n) => (args, span) => {
+    exactArgs(args, 2, span, n);
+    let a = check(args.shift(), ['number', 'string']);
+    let b = check(args.shift(), ['number', 'string']);
     return comparisonFn(a.value, b.value) ? mkTrue() : mkFalse();
 }
 
-const calculateNumbers = comparisonFn => (args, span) => {
-    atLeastArgs(args, 1, span)
+const calculateNumbers = (comparisonFn, n) => (args, span) => {
+    atLeastArgs(args, 1, span, n)
 
     let first = check(args.shift(), 'number');
 
@@ -913,21 +957,8 @@ const calculateNumbers = comparisonFn => (args, span) => {
     return mkNum(result)
 }
 
-
-const calculateBool = comparisonFn => (args, span) => {
-    atLeastArgs(args, 1, span)
-
-    let result = toJSBool(args.shift());
-
-    for (const arg of args) {
-        result = comparisonFn(result, toJSBool(arg))
-    }
-
-    return mkBool(result)
-}
-
 const fn_cons = (args, span) => {
-    exactArgs(args, 2, span);
+    exactArgs(args, 2, span, "cons");
     let head = args.shift();
     let elem = args.shift();
     if (elem.type == 'list') {
@@ -944,8 +975,28 @@ const fn_cons = (args, span) => {
     }
 }
 
+const fn_push = (args, span) => {
+    exactArgs(args, 2, span, "cons");
+    let head = args.shift();
+    let elem = args.shift();
+    if (elem.type == 'list') {
+        return {
+            type: 'list',
+            elements: [...elem.elements, head],
+            span: elem.span
+        };
+    } else if (elem.type == 'array') {
+        elem.elements.push(head)
+    } else {
+        return {
+            type: 'array',
+            elements: [elem, head]
+        };
+    }
+}
+
 const fn_check = (args, span) => {
-    exactArgs(args, 2, span);
+    exactArgs(args, 2, span, "check");
     let elem = args.shift();
     let type = check(args.shift(), 'string');
     check(elem, type.value);
@@ -960,25 +1011,60 @@ const fn_list = (args) => {
 }
 
 const fn_print = (args) => {
-    console.log(args.map(toJSStr)
+    console.log(args.map(getJSStr)
         .join(" "));
     return mkNil();
 }
 
+const fn_eprint = (args) => {
+    console.error(args.map(getJSStr)
+        .join(" "));
+    return mkNil();
+}
+
+const fn_exit = (args, span) => {
+    exactArgs(args, 1, span, "exit");
+    let a = check(args.shift(), ['number']);
+    process.exit(a.value)
+}
+
+const fn_unsafe_eval = (args, span) => {
+    atLeastArgs(args, 1, span, "unsafe-eval");
+    let a = check(args.shift(), ['string']);
+
+    let newArgs = args.map(x => x.elements !== undefined || x.value)
+
+    return eval(a.value)(...newArgs)
+}
+
+const fn_unsafe_from_js_obj = (args, span) => {
+    exactArgs(args, 2, span, "unsafe-from-js-obj");
+
+    let unknown = args.shift();
+    let type = check(args.shift(), ['string']);
+
+    if (type.value == "list") {
+        return { type: type.value, elements: unknown === undefined ? [] : unknown }
+    } else {
+        return { type: type.value, value: unknown }
+    }
+    
+}
+
 const fn_is_cons = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "cons?");
     let elem = args.shift();
     return mkBool(elem.type == 'list' && elem.elements.length > 0)
 }
 
 const fn_is_nil = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "nil?");
     let elem = args.shift();
     return mkBool(elem.type == 'list' && elem.elements.length == 0)
 }
 
 const fn_head = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "head");
     let elem = args.shift();
     if (elem.type == 'list' && elem.elements.length > 0) {
         return elem.elements[0];
@@ -988,19 +1074,19 @@ const fn_head = (args, span) => {
 }
 
 const fn_string = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "string");
     let elem = args.shift();
     return mkString(toJSStr(elem))
 }
 
 const fn_type = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "type");
     let elem = args.shift();
     return mkString(elem.type)
 }
 
 const fn_tail = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "tail");
     let elem = args.shift();
     if (elem.type == 'list' && elem.elements.length > 0) {
         let elements = [...elem.elements];
@@ -1036,62 +1122,75 @@ const areEqual = (a, b) => {
 }
 
 const fn_eq = (args, span) => {
-    exactArgs(args, 2, span);
+    exactArgs(args, 2, span, "eq");
     return mkBool(areEqual(args[0], args[1]))
 }
 
 const fn_neq = (args, span) => {
-    exactArgs(args, 2, span);
+    exactArgs(args, 2, span, "neq");
     return mkBool(!areEqual(args[0], args[1]))
 }
 
 const fn_concat = (args, span) => {
-    atLeastArgs(args, 2, span);
+    atLeastArgs(args, 1, span, "concat");
 
     let type = '';
 
-    let fst = args.shift();
+    let fst = check(args.shift(), ['string', 'list', 'identifier']);
     type = fst.type;
 
-    let result = fst.value + args.map(arg => {
-        check(arg, type);
-        return arg.value;
-    }).join('');
+    let result;
+
+    if (fst.type == 'list') {
+        let res = args.map(arg => {
+            check(arg, type);
+            return arg.elements;
+        })
+
+        result = fst.elements.concat(...res);
+    } else {
+        result = fst.value + args.map(arg => {
+            check(arg, type);
+            return arg.value;
+        }).join('');
+    }
 
     if (fst.type == "string") {
         return mkString(result)
+    } else if (fst.type == 'list') {
+        return mkList(result)
     } else {
         return mkIdent(result)
     }
 }
 
 const fn_indexOf = (args, span) => {
-    exactArgs(args, 2, span);
+    exactArgs(args, 2, span, "indexOf");
     let str = check(args.shift(), 'string');
     let substr = check(args.shift(), 'string');
     return mkNum(str.value.indexOf(substr.value));
 }
 
 const fn_startsWith = (args, span) => {
-    exactArgs(args, 2, span);
+    exactArgs(args, 2, span, "startsWith");
     let str = check(args.shift(), 'string');
     let substr = check(args.shift(), 'string');
     return mkBool(str.value.startsWith(substr.value))
 }
 
 const fn_substring = (args, span) => {
-    exactArgs(args, 3, span);
+    exactArgs(args, 3, span, "substring");
     let str = check(args.shift(), 'string');
     let start = check(args.shift(), 'number');
     let length = check(args.shift(), 'number');
     if (start.value < 0 || start.value >= str.value.length || length.value < 0) {
         return mkNil();
     }
-    return mkString(str.value.substring(start.value, start.value + length.value));
+    return mkString(str.value.substring(start.value, length.value));
 }
 
 const fn_at = (args, span) => {
-    exactArgs(args, 2, span);
+    exactArgs(args, 2, span, "at");
     let str = check(args.shift(), ['string', 'list']);
     let index = check(args.shift(), 'number');
 
@@ -1109,7 +1208,7 @@ const fn_at = (args, span) => {
 }
 
 const fn_length = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "length");
     let str = check(args.shift(), ['string', 'list']);
 
     if (str.type == 'string') {
@@ -1120,7 +1219,7 @@ const fn_length = (args, span) => {
 }
 
 const fn_atom = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "atom");
 
     return mkAtom(getJSStr(args.shift()))
 }
@@ -1144,7 +1243,7 @@ const fn_dict = (args, span) => {
 }
 
 const fn_dict_insert = (args, span) => {
-    exactArgs(args, 3, span);
+    exactArgs(args, 3, span, "dict_insert");
     let dict = check(args.shift(), 'dict');
     let key = check(args.shift(), ['atom', 'string', 'identifier']);
     let value = args.shift();
@@ -1162,7 +1261,7 @@ const fn_dict_insert = (args, span) => {
 
 
 const fn_dict_get = (args, span) => {
-    exactArgs(args, 2, span);
+    exactArgs(args, 2, span, "dict_get");
     let dict = check(args.shift(), 'dict');
     let key = check(args.shift(), ['atom', 'string', 'identifier']);
 
@@ -1176,7 +1275,7 @@ const fn_dict_get = (args, span) => {
 }
 
 const fn_dict_remove = (args, span) => {
-    exactArgs(args, 2, span);
+    exactArgs(args, 2, span, "dict_remove");
     let dict = check(args.shift(), 'dict');
     let key = check(args.shift(), ['atom', 'string', 'identifier']);
 
@@ -1191,20 +1290,24 @@ const fn_dict_remove = (args, span) => {
 
 
 const fn_require = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "require");
     let str = check(args.shift(), 'string');
 
     if (!__env.__files.has(str.value)) {
         __env.__files.add(str.value)
         let file = fs.readFileSync(str.value, { encoding: 'UTF-8' })
+        let cur = __env.__current;
+        __env.__current = [str.value, file];
         run(file)
+        __env.__current = cur;
     }
+
 
     return mkNil();
 }
 
 const fn_span = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "span");
 
     let expr = args[0]
 
@@ -1216,17 +1319,17 @@ const fn_span = (args, span) => {
 }
 
 const fn_throw = (args, span) => {
-    atLeast(args, 1, span);
+    atLeast(args, 1, span, "throw");
     let str = check(args.shift(), 'string');
 
-    let pos = (args.length > 0) ? args.shift() : mkNil()
-    let jsData = translateToJS(pos)
+    let pos = args.length > 0 && translateToJS(args.shift())
+    let file = args.length > 0 && getJSStr(args.shift())
 
-    throw new LispRuntimeError(str.value, jsData)
+    throw new LispRuntimeError(str.value, pos, file)
 }
 
 const fn_apply = (args, span) => {
-    atLeast(args, 2, span);
+    atLeast(args, 2, span, "apply");
     let fn = check(args.shift(), 'closure');
     let ls = check(args.shift(), 'list');
 
@@ -1234,7 +1337,7 @@ const fn_apply = (args, span) => {
 }
 
 const fn_eval = (args, span) => {
-    atLeast(args, 1, span);
+    atLeast(args, 1, span, "eval");
 
     let specialized = specialize(args.shift())
     let code = generate(specialized)
@@ -1243,7 +1346,7 @@ const fn_eval = (args, span) => {
 }
 
 const fn_expand = (args, span) => {
-    atLeast(args, 1, span);
+    atLeast(args, 1, span, "expand");
 
     let expanded = args.shift();
 
@@ -1256,7 +1359,7 @@ const fn_expand = (args, span) => {
 }
 
 const fn_dict_to_list = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "dict/to-list");
     let dict = check(args.shift(), 'dict');
 
     let result = [];
@@ -1276,7 +1379,7 @@ const fn_dict_to_list = (args, span) => {
 }
 
 const fn_dict_of_list = (args, span) => {
-    exactArgs(args, 1, span);
+    exactArgs(args, 1, span, "dict/of-list");
     let list = check(args.shift(), 'list');
 
     let result = {
@@ -1304,17 +1407,16 @@ const fn_dict_of_list = (args, span) => {
 const __env = {
     __expanded: false,
     __files: new Set(),
+    __current: "",
     __values: {
         "cons?": { value: { type: 'closure', prim: true, value: fn_is_cons } },
         "nil?": { value: { type: 'closure', prim: true, value: fn_is_nil } },
         "cons": { value: { type: 'closure', prim: true, value: fn_cons } },
+        "push": { value: { type: 'closure', prim: true, value: fn_push } },
         "head": { value: { type: 'closure', prim: true, value: fn_head } },
         "string": { value: { type: 'closure', prim: true, value: fn_string } },
         "type": { value: { type: 'closure', prim: true, value: fn_type } },
         "tail": { value: { type: 'closure', prim: true, value: fn_tail } },
-        "apply": { value: { type: 'closure', prim: true, value: fn_apply } },
-        "eval": { value: { type: 'closure', prim: true, value: fn_eval } },
-        "expand": { value: { type: 'closure', prim: true, value: fn_expand } },
         "+": { value: { type: 'closure', prim: true, value: calculateNumbers((x, y) => x + y) } },
         "-": { value: { type: 'closure', prim: true, value: calculateNumbers((x, y) => x - y) } },
         "<": { value: { type: 'closure', prim: true, value: compareNumbers((x, y) => x < y) } },
@@ -1324,6 +1426,9 @@ const __env = {
 
         "list": { value: { type: 'closure', prim: true, value: fn_list } },
         "print": { value: { type: 'closure', prim: true, value: fn_print } },
+        "eprint": { value: { type: 'closure', prim: true, value: fn_eprint } },
+        "exit": { value: { type: 'closure', prim: true, value: fn_exit } },
+
         "=": { value: { type: 'closure', prim: true, value: fn_eq } },
         "!=": { value: { type: 'closure', prim: true, value: fn_neq } },
 
@@ -1339,9 +1444,15 @@ const __env = {
         "string/starts": { value: { type: 'closure', prim: true, value: fn_startsWith } },
         "concat": { value: { type: 'closure', prim: true, value: fn_concat } },
 
+        "apply": { value: { type: 'closure', prim: true, value: fn_apply } },
+        "eval": { value: { type: 'closure', prim: true, value: fn_eval } },
+        "expand": { value: { type: 'closure', prim: true, value: fn_expand } },
+        "unsafe-eval": { value: { type: 'closure', prim: true, value: fn_unsafe_eval } },
+        "unsafe-from-js-obj": { value: { type: 'closure', prim: true, value: fn_unsafe_from_js_obj } },
         "check": { value: { type: 'closure', prim: true, value: fn_check } },
         "span": { value: { type: 'closure', prim: true, value: fn_span } },
         "throw": { value: { type: 'closure', prim: true, value: fn_throw } },
+        "require": { value: { type: 'closure', prim: true, value: fn_require } },
 
         "dict": { value: { type: 'closure', prim: true, value: fn_dict } },
         "dict/set": { value: { type: 'closure', prim: true, value: fn_dict_insert } },
@@ -1349,8 +1460,6 @@ const __env = {
         "dict/remove": { value: { type: 'closure', prim: true, value: fn_dict_remove } },
         "dict/to-list": { value: { type: 'closure', prim: true, value: fn_dict_to_list } },
         "dict/of-list": { value: { type: 'closure', prim: true, value: fn_dict_of_list } },
-        "require": { value: { type: 'closure', prim: true, value: fn_require } },
-
     },
     __frames: [],
     __find: (name, span) => {
@@ -1385,26 +1494,14 @@ const run = (input) => {
             eval(code)
         }
     } catch (err) {
-        if (err instanceof LispSyntaxError || err instanceof LispCompilationError ||
-            err instanceof LispParseError || err instanceof LispRuntimeError) {
+        if (err instanceof LispSyntaxError || err instanceof LispCompilationError || err instanceof LispRuntimeError) {
             console.error("")
             console.error(err.message)
-            console.error("")
 
-            if (err.span) {
-                let lines = input.split("\n")
-                let start = indexToLineColumn(input, err.span[0])
-                let end = indexToLineColumn(input, err.span[1])
-
-                let selected = getSurroundingLines(lines, start, end);
-                printSurroundingLinesWithHighlight(selected, start, end);
-                console.error("")
-            }
-
-            console.log(`callstack of ${__env.__frames.length} frames:`)
             if (__env.__frames.length > 0) {
-                for (const frame of __env.__frames) {
-                    console.error("   --> " + frame)
+                for (const frame of __env.__frames.reverse()) {
+                    let start = indexToLineColumn(input, frame[2][0])
+                    console.error("   --> " + frame[0] + " in " + frame[1] + ":" + start.line + ":" + start.column)
                 }
             }
             console.error("")
@@ -1432,5 +1529,6 @@ fs.readFile(fileName, 'utf8', (err, data) => {
         process.exit(1);
     }
 
+    __env.__current = [fileName, data];
     run(data);
 });
