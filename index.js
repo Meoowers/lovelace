@@ -1283,9 +1283,7 @@ const fn_dict_remove = (args, span) => {
     let dict = check(args.shift(), 'dict');
     let key = check(args.shift(), ['atom', 'string', 'identifier']);
 
-    let refkey = { type: key.type, value: key.value };
-
-    if (refkey in dict.value) {
+    if (key.value in dict.value) {
         delete dict.value[refkey];
     }
 

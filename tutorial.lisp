@@ -59,24 +59,7 @@
     (print x)           ; Imprime x.
     (set* x (+ x 1)))   ; Incrementa x em 1.
 
-; 8. Usando macros: Macros são como funções, mas são expandidos em tempo de
-; compilação. Aqui temos o `quasi-quote`, que permite citar listas e
-; incluir elementos não citados.
-
-; Exemplo:
-(set* quasi-quote (fn quasi-quote (expr)
-    (if (cons? expr)
-        (if (= 'unquote (head expr))
-            (head (tail expr))
-            (cons 'list (map expr quasi-quote)))
-        (list 'quote expr))))
-t
-(macro quasi-quote)
-
-; Uso da macro `quasi-quote` para citar uma lista:
-(print `(a b ,(+ 1 2)))  ; Gera: (list 'a 'b 3)
-
-; 9. Funções úteis: O `map` aplica uma função `func` a cada elemento de uma
+; 8. Funções úteis: O `map` aplica uma função `func` a cada elemento de uma
 ; lista e retorna uma nova lista com os resultados.
 
 ; Exemplo:
@@ -89,6 +72,23 @@ t
             ()))))
 
 (map '(1 2 3) (fn f (x) (* x 2)))  ; Retorna: (2 4 6)
+
+; 9. Usando macros: Macros são como funções, mas são expandidos em tempo de
+; compilação. Aqui temos o `quasi-quote`, que permite citar listas e
+; incluir elementos não citados.
+
+; Exemplo:
+(set* quasi-quote (fn quasi-quote (expr)
+    (if (cons? expr)
+        (if (= 'unquote (head expr))
+            (head (tail expr))
+            (cons 'list (map expr quasi-quote)))
+        (list 'quote expr))))
+
+(macro quasi-quote)
+
+; Uso da macro `quasi-quote` para citar uma lista:
+(print `(a b ,(+ 1 2)))  ; Gera: (list 'a 'b 3)
 
 ; 10. Funções variádicas: Aceitam um número indefinido de argumentos. Aqui,
 ; `a` e `b` são obrigatórios, enquanto `&c` captura todos os argumentos extras.
@@ -177,3 +177,74 @@ t
 (set* tail-list (tail lista3))              ; Obtém o restante da lista
 (print tail-list)                           ; Deve imprimir: (8 9)
 (print (nil? tail-list))                    ; Deve imprimir: false
+
+; Example usage of `cons` to add an element to the front of a list
+(cons 1 (list 2 3 4)) ; Result: (1 2 3 4)
+
+; Example usage of `push` to add an element to the end of a list
+(push 5 (list 1 2 3 4)) ; Result: (1 2 3 4 5)
+
+; Example usage of `head` to get the first element of a list
+(head (list 1 2 3 4)) ; Result: 1
+
+; Example usage of `tail` to get the list without the first element
+(tail (list 1 2 3 4)) ; Result: (2 3 4)
+
+; Example usage of `string` to convert a value to a string
+(string 123) ; Result: "123"
+
+; Example usage of `type` to get the type of a value
+(type (list 1 2 3)) ; Result: "list"
+
+; Example usage of `length` to get the number of elements in a list
+(length (list 1 2 3 4)) ; Result: 4
+
+; Example usage of `atom` to create an atom from a string
+(atom "myatom") ; Result: myatom
+
+; Example usage of `concat` to concatenate strings or lists
+(concat (list 1 2) (list 3 4)) ; Result: (1 2 3 4)
+(concat "Hello " "World") ; Result: "Hello World"
+
+; Example usage of `apply` to call a function with a list of arguments
+(apply (fn (x y) (+ x y)) (list 3 4)) ; Result: 7
+
+; Example usage of `eval` to evaluate a Lisp expression
+(eval (list '+ 2 3)) ; Result: 5
+
+; Example usage of `dict` to create a dictionary from key-value pairs
+(dict (atom 'key1') 1 (atom 'key2') 2) ; Result: {key1: 1, key2: 2}
+
+; Example usage of `dict/get` to retrieve a value from a dictionary
+(dict/get (dict (atom 'key1') 1 (atom 'key2') 2) (atom 'key1')) ; Result: 1
+
+; Example usage of `dict/set` to update a value in a dictionary
+(dict/set (dict (atom 'key1') 1 (atom 'key2') 2) (atom 'key1') 10) ; Result: {key1: 10, key2: 2}
+
+; Example usage of `dict/to-list` to convert a dictionary to a list of key-value pairs
+(dict/to-list (dict (atom 'key1') 1 (atom 'key2') 2)) ; Result: ((key1 1) (key2 2))
+
+; Example usage of `dict/of-list` to convert a list of key-value pairs to a dictionary
+(dict/of-list (list (list (atom 'key1') 1) (list (atom 'key2') 2))) ; Result: {key1: 1, key2: 2}
+
+; Example usage of `print` to output a value to the console
+(print (list 1 2 3 4)) ; Console: 1 2 3 4
+
+; Example usage of `eprint` to output a value to the error stream
+(eprint "error message") ; Console error: Error message
+
+; Example usage of `exit` to terminate the program
+; (exit 0) ; Terminates the program with exit code 0
+
+; Example usage of `unsafe-eval` to evaluate a string as code
+(print (unsafe-eval "() => mkNil()")) ; Result: 3
+
+; Example usage of `require` to load a module or file
+(require "./compiler/std.lisp") ; Loads and executes the contents of "module.lisp"
+
+; Example usage of `span` to get the span of an expression
+(span (list 1 2 3)) ; Result: (start end) ; Where `start` and `end` are the span values
+
+; Example usage of `throw` to raise an error
+(throw "Something went wrong oh no" (span 1)) ; Raises a LispRuntimeError with the message "Something went wrong"
+; It uses the location of the 1 to set the error.
