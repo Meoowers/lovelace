@@ -178,73 +178,73 @@
 (print tail-list)                           ; Deve imprimir: (8 9)
 (print (nil? tail-list))                    ; Deve imprimir: false
 
-; Example usage of `cons` to add an element to the front of a list
-(cons 1 (list 2 3 4)) ; Result: (1 2 3 4)
+; Exemplo de uso de `cons` para adicionar um elemento ao início de uma lista
+(cons 1 (list 2 3 4)) ; Resultado: (1 2 3 4)
 
-; Example usage of `push` to add an element to the end of a list
-(push 5 (list 1 2 3 4)) ; Result: (1 2 3 4 5)
+; Exemplo de uso de `push` para adicionar um elemento ao final de uma lista
+(push 5 (list 1 2 3 4)) ; Resultado: (1 2 3 4 5)
 
-; Example usage of `head` to get the first element of a list
-(head (list 1 2 3 4)) ; Result: 1
+; Exemplo de uso de `head` para obter o primeiro elemento de uma lista
+(head (list 1 2 3 4)) ; Resultado: 1
 
-; Example usage of `tail` to get the list without the first element
-(tail (list 1 2 3 4)) ; Result: (2 3 4)
+; Exemplo de uso de `tail` para obter a lista sem o primeiro elemento
+(tail (list 1 2 3 4)) ; Resultado: (2 3 4)
 
-; Example usage of `string` to convert a value to a string
-(string 123) ; Result: "123"
+; Exemplo de uso de `string` para converter um valor em uma string
+(string 123) ; Resultado: "123"
 
-; Example usage of `type` to get the type of a value
-(type (list 1 2 3)) ; Result: "list"
+; Exemplo de uso de `type` para obter o tipo de um valor
+(type (list 1 2 3)) ; Resultado: "list"
 
-; Example usage of `length` to get the number of elements in a list
-(length (list 1 2 3 4)) ; Result: 4
+; Exemplo de uso de `length` para obter o número de elementos em uma lista
+(length (list 1 2 3 4)) ; Resultado: 4
 
-; Example usage of `atom` to create an atom from a string
-(atom "myatom") ; Result: myatom
+; Exemplo de uso de `atom` para criar um átomo a partir de uma string
+(atom "myatom") ; Resultado: myatom
 
-; Example usage of `concat` to concatenate strings or lists
-(concat (list 1 2) (list 3 4)) ; Result: (1 2 3 4)
-(concat "Hello " "World") ; Result: "Hello World"
+; Exemplo de uso de `concat` para concatenar strings ou listas
+(concat (list 1 2) (list 3 4)) ; Resultado: (1 2 3 4)
+(concat "Hello " "World") ; Resultado: "Hello World"
 
-; Example usage of `apply` to call a function with a list of arguments
-(apply (fn (x y) (+ x y)) (list 3 4)) ; Result: 7
+; Exemplo de uso de `apply` para chamar uma função com uma lista de argumentos
+(apply (fn (x y) (+ x y)) (list 3 4)) ; Resultado: 7
 
-; Example usage of `eval` to evaluate a Lisp expression
-(eval (list '+ 2 3)) ; Result: 5
+; Exemplo de uso de `eval` para avaliar uma expressão Lisp
+(eval (list '+ 2 3)) ; Resultado: 5
 
-; Example usage of `dict` to create a dictionary from key-value pairs
-(dict (atom 'key1') 1 (atom 'key2') 2) ; Result: {key1: 1, key2: 2}
+; Exemplo de uso de `dict` para criar um dicionário a partir de pares chave-valor
+(dict (atom 'key1') 1 (atom 'key2') 2) ; Resultado: {key1: 1, key2: 2}
 
-; Example usage of `dict/get` to retrieve a value from a dictionary
-(dict/get (dict (atom 'key1') 1 (atom 'key2') 2) (atom 'key1')) ; Result: 1
+; Exemplo de uso de `dict/get` para recuperar um valor de um dicionário
+(dict/get (dict (atom 'key1') 1 (atom 'key2') 2) (atom 'key1')) ; Resultado: 1
 
-; Example usage of `dict/set` to update a value in a dictionary
-(dict/set (dict (atom 'key1') 1 (atom 'key2') 2) (atom 'key1') 10) ; Result: {key1: 10, key2: 2}
+; Exemplo de uso de `dict/set` para atualizar um valor em um dicionário
+(dict/set (dict (atom 'key1') 1 (atom 'key2') 2) (atom 'key1') 10) ; Resultado: {key1: 10, key2: 2}
 
-; Example usage of `dict/to-list` to convert a dictionary to a list of key-value pairs
-(dict/to-list (dict (atom 'key1') 1 (atom 'key2') 2)) ; Result: ((key1 1) (key2 2))
+; Exemplo de uso de `dict/to-list` para converter um dicionário em uma lista de pares chave-valor
+(dict/to-list (dict (atom 'key1') 1 (atom 'key2') 2)) ; Resultado: ((key1 1) (key2 2))
 
-; Example usage of `dict/of-list` to convert a list of key-value pairs to a dictionary
-(dict/of-list (list (list (atom 'key1') 1) (list (atom 'key2') 2))) ; Result: {key1: 1, key2: 2}
+; Exemplo de uso de `dict/of-list` para converter uma lista de pares chave-valor em um dicionário
+(dict/of-list (list (list (atom 'key1') 1) (list (atom 'key2') 2))) ; Resultado: {key1: 1, key2: 2}
 
-; Example usage of `print` to output a value to the console
+; Exemplo de uso de `print` para exibir um valor no console
 (print (list 1 2 3 4)) ; Console: 1 2 3 4
 
-; Example usage of `eprint` to output a value to the error stream
-(eprint "error message") ; Console error: Error message
+; Exemplo de uso de `eprint` para exibir um valor na saída de erro
+(eprint "mensagem de erro") ; Console de erro: mensagem de erro
 
-; Example usage of `exit` to terminate the program
-; (exit 0) ; Terminates the program with exit code 0
+; Exemplo de uso de `exit` para terminar o programa
+(exit 0) ; Termina o programa com código de saída 0
 
-; Example usage of `unsafe-eval` to evaluate a string as code
-(print (unsafe-eval "() => mkNil()")) ; Result: 3
+; Exemplo de uso de `unsafe-eval` para avaliar uma string como código
+(print (unsafe-eval "() => mkNil()")) ; Resultado: 3
 
-; Example usage of `require` to load a module or file
-(require "./compiler/std.lisp") ; Loads and executes the contents of "module.lisp"
+; Exemplo de uso de `require` para carregar um módulo ou arquivo
+(require "./compiler/std.lisp") ; Carrega e executa o conteúdo de "module.lisp"
 
-; Example usage of `span` to get the span of an expression
-(span (list 1 2 3)) ; Result: (start end) ; Where `start` and `end` are the span values
+; Exemplo de uso de `span` para obter o intervalo de uma expressão
+(span (list 1 2 3)) ; Resultado: (start end) ; Onde `start` e `end` são os valores do intervalo
 
-; Example usage of `throw` to raise an error
-(throw "Something went wrong oh no" (span 1)) ; Raises a LispRuntimeError with the message "Something went wrong"
-; It uses the location of the 1 to set the error.
+; Exemplo de uso de `throw` para levantar um erro
+(throw "Algo deu errado oh não" (span 1)) ; Levanta um LispRuntimeError com a mensagem "Algo deu errado"
+; Usa a localização do 1 para definir o erro.
