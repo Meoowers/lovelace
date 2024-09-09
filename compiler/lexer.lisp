@@ -21,7 +21,6 @@
 (defn tokenize/error (message span)
     (throw (concat message " ") (list (span/start span) (span/end span)) (lovelace/current-file!))
     (exit 1))
-
 ; Accumulates a bunch of tokens
 (defn tokenize/accumulate (input f index)
     (let ((end index))

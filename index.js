@@ -655,7 +655,10 @@ const generate = (node, scope = new Map(), quote = false) => {
 
         case 'set*':
             const setValue = generate(node.value, scope);
-            return `(() => { __env.__values["${node.name.value}"] = { "value": ${setValue} }; return mkNil(); })()`;
+            return `(() => { __env.__values["${node.name.value}"] = { "value": ${setValue} };
+                             __env.__defined_by["${node.name.value}"] = __env.__current[0];
+                             return mkNil();
+                           })()`;
 
         case 'fn':
             const fnScope = new Map(scope);
@@ -808,8 +811,9 @@ let getJSStr = (x) => {
             return x.value.toString()
         case 'string':
         case 'identifier':
-        case 'atom':
             return x.value
+        case 'atom':
+            return ":" + x.value
         default:
             return toJSStr(x)
     }
@@ -888,21 +892,21 @@ const mkAtom = (value) => ({
     value
 })
 
-const atLeastArgs = (args, n, span, n2) => {
+const atLeastArgs = (args, n, span) => {
     if (args.length < n) {
-        throw new LispRuntimeError(`expected at least \`${n}\` arguments but got \`${args.length}\` at ${n2}`,
+        throw new LispRuntimeError(`expected at least \`${n}\` arguments but got \`${args.length}\``,
             span)
     }
 }
 
 
-const exactArgs = (args, n, span, n2) => {
+const exactArgs = (args, n, span) => {
     if (args.length != n) {
-        throw new LispRuntimeError(`expected \`${n}\` arguments but got \`${args.length}\` at ${n2}`, span)
+        throw new LispRuntimeError(`expected \`${n}\` arguments but got \`${args.length}\``, span)
     }
 }
 
-const check = (arg, typ, span) => {
+const check = (arg, typ) => {
     if (typ instanceof Array) {
         if (!typ.includes(arg.type)) {
             throw new LispRuntimeError(`expected \`${typ.join(", ")}\` but got \`${arg.type}\``, arg.span)
@@ -1048,7 +1052,7 @@ const fn_unsafe_from_js_obj = (args, span) => {
     } else {
         return { type: type.value, value: unknown }
     }
-    
+
 }
 
 const fn_is_cons = (args, span) => {
@@ -1302,7 +1306,6 @@ const fn_require = (args, span) => {
         __env.__current = cur;
     }
 
-
     return mkNil();
 }
 
@@ -1408,6 +1411,9 @@ const __env = {
     __expanded: false,
     __files: new Set(),
     __current: "",
+    __defined_by: {
+
+    },
     __values: {
         "cons?": { value: { type: 'closure', prim: true, value: fn_is_cons } },
         "nil?": { value: { type: 'closure', prim: true, value: fn_is_nil } },
@@ -1474,12 +1480,12 @@ const __env = {
 // Test
 
 const run = (input) => {
-    let l = tokenize(input)
-
-    let parts = parse(l)
+    let tokens = tokenize(input)
+    let parts = parse(tokens)
 
     try {
         for (const listParsed of parts) {
+
             let expanded = listParsed
 
             do {

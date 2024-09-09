@@ -197,7 +197,7 @@
 
 ; Macro for a pattern-matching `case` statement.
 (defm case (d &arms)
-    (let ((body (foldr arms `(throw (concat "no match!")) (fn (acc arm) (case/arm `__c acc arm)))))
+    (let ((body (foldr arms `(throw (concat "case: no match!") (span __c)) (fn (acc arm) (case/arm `__c acc arm)))))
     `(let ((__c ,d)) ,body)))
 
 (defm def-record (name &fields)
@@ -238,5 +238,3 @@
         (set index (prim_add index 1)))
 
     result))
-
-(print (+ 1 2 3))
