@@ -68,10 +68,10 @@
         (check list "list")
         (check func "closure")
         (if (cons? list)
-            (cons (func (head list)) (map (tail list) func))
+            (cons (func (head list)) (list/map (tail list) func))
             ()))))
 
-(map '(1 2 3) (fn f (x) (* x 2)))  ; Retorna: (2 4 6)
+(list/map '(1 2 3) (fn f (x) (* x 2)))  ; Retorna: (2 4 6)
 
 ; 9. Usando macros: Macros são como funções, mas são expandidos em tempo de
 ; compilação. Aqui temos o `quasi-quote`, que permite citar listas e
@@ -82,7 +82,7 @@
     (if (cons? expr)
         (if (= 'unquote (head expr))
             (head (tail expr))
-            (cons 'list (map expr quasi-quote)))
+            (cons 'list (list/map expr quasi-quote)))
         (list 'quote expr))))
 
 (macro quasi-quote)
@@ -240,7 +240,7 @@
 (print (unsafe-eval "() => mkNil()")) ; Resultado: 3
 
 ; Exemplo de uso de `require` para carregar um módulo ou arquivo
-(require "./compiler/std.lisp") ; Carrega e executa o conteúdo de "module.lisp"
+(require "./src/compiler/std.lisp") ; Carrega e executa o conteúdo de "module.lisp"
 
 ; Exemplo de uso de `span` para obter o intervalo de uma expressão
 (span (list 1 2 3)) ; Resultado: (start end) ; Onde `start` e `end` são os valores do intervalo
