@@ -148,7 +148,13 @@ const specializeIf = (node) => {
 
   let cond = specializeExpr(elems.shift());
   let thenBranch = specializeExpr(elems.shift());
-  let elseBranch = elems.length == 0 ? mkNil() : specializeExpr(elems.shift());
+  let elseBranch =
+    elems.length == 0
+      ? {
+          type: "list",
+          elements: [],
+        }
+      : specializeExpr(elems.shift());
 
   return {
     type: "if",

@@ -17,7 +17,7 @@ const mangle = (name) => {
 
 // Checker
 
-const generate = (node, scope = new Map(), span, quote = false) => {
+const generate = (__env, node, scope = new Map(), span, quote = false) => {
   const uniqueName = (scope, name, l = 0) => {
     let count = scope.get(name) - l || 0;
     scope.set(name, count + 1);
@@ -49,14 +49,14 @@ const generate = (node, scope = new Map(), span, quote = false) => {
 
       const letBindings = node.params
         .map(([name, value]) => {
-          const jsValue = generate(value, letScope, node.span || span);
+          const jsValue = generate(__env, value, letScope, node.span || span);
           const uniqueVar = uniqueName(letScope, name.value);
           return `let ${uniqueVar} = ${jsValue};`;
         })
         .join(" ");
 
       const letBody = node.body.map((expr) =>
-        generate(expr, letScope, node.span || span)
+        generate(__env, expr, letScope, node.span || span)
       );
       return `(() => { ${letBindings} ${letBody
         .map((x, i) => (i == letBody.length - 1 ? `return ${x}` : x))
@@ -65,6 +65,7 @@ const generate = (node, scope = new Map(), span, quote = false) => {
     case "set":
       if (scope.has(node.name.value)) {
         return `(() => { ${uniqueName(scope, node.name.value, 1)} = ${generate(
+          __env,
           node.value,
           scope,
           node.span || span
@@ -80,16 +81,16 @@ const generate = (node, scope = new Map(), span, quote = false) => {
       const blockBody = node.body
         .map((expr, index) => {
           if (index === node.body.length - 1) {
-            return `return ${generate(expr, scope, node.span || span)};`;
+            return `return ${generate(__env, expr, scope, node.span || span)};`;
           }
-          return `${generate(expr, scope, node.span || span)};`;
+          return `${generate(__env, expr, scope, node.span || span)};`;
         })
         .join(" ");
 
       return `(() => { ${blockBody} })()`;
 
     case "set*":
-      const setValue = generate(node.value, scope, node.span || span);
+      const setValue = generate(__env, node.value, scope, node.span || span);
       return `(() => { __env.__values["${node.name.value}"] = { "value": ${setValue} };
                                __env.__defined_by["${node.name.value}"] = __env.__current[0];
                                return mkNil();
@@ -125,7 +126,7 @@ const generate = (node, scope = new Map(), span, quote = false) => {
             node.span
           )}, ${node.name ? `"${node.name}"` : ""});`;
 
-      const fnBody = generate(node.body, fnScope, node.span || span);
+      const fnBody = generate(__env, node.body, fnScope, node.span || span);
 
       return `({ type: "closure"${
         node.name ? `, name: "${node.name}"` : ""
@@ -134,9 +135,9 @@ const generate = (node, scope = new Map(), span, quote = false) => {
       )}, value: (__args) => { ${fnArgsCheck} ${fnParams} return ${fnBody}; }})`;
 
     case "if":
-      const cond = generate(node.cond, scope, node.span || span);
-      const thenBranch = generate(node.then, scope, node.span || span);
-      const elseBranch = generate(node.else, scope, node.span || span);
+      const cond = generate(__env, node.cond, scope, node.span || span);
+      const thenBranch = generate(__env, node.then, scope, node.span || span);
+      const elseBranch = generate(__env, node.else, scope, node.span || span);
       return `((toJSBool(${cond})) ? ${thenBranch} : ${elseBranch})`;
 
     case "quote":
@@ -146,18 +147,18 @@ const generate = (node, scope = new Map(), span, quote = false) => {
       return `(() => {__env.__values["${node.name.value}"].macro = true; return mkNil()})()`;
 
     case "app":
-      const appName = generate(node.name, scope, node.span || span);
+      const appName = generate(__env, node.name, scope, node.span || span);
       const appParams = node.params
-        .map((param) => generate(param, scope, node.span || span))
+        .map((param) => generate(__env, param, scope, node.span || span))
         .join(", ");
       return `call(${appName},[${appParams}], ${JSON.stringify(
         node.span || span
       )})`;
 
     case "while": {
-      const cond = generate(node.cond, scope, node.span || span);
+      const cond = generate(__env, node.cond, scope, node.span || span);
       const body = node.body
-        .map((expr) => generate(expr, scope, node.span || span))
+        .map((expr) => generate(__env, expr, scope, node.span || span))
         .join(";");
       return `(() => { while (toJSBool(${cond})) { ${body} }; return mkNil(); })()`;
     }

@@ -661,7 +661,7 @@ const fn_eval = (args, span) => {
   atLeast(args, 1, span, "eval");
 
   let specialized = specialize(args.shift());
-  let code = generate(specialized, new Map(), specialized.span);
+  let code = generate(__env, specialized, new Map(), specialized.span);
 
   return eval(code);
 };
@@ -897,7 +897,12 @@ const run = (input) => {
 
       let specialized = specialize(expanded);
 
-      let code = generate(specialized, new Map(), span || specialized.span);
+      let code = generate(
+        __env,
+        specialized,
+        new Map(),
+        span || specialized.span
+      );
 
       eval(code);
     }
