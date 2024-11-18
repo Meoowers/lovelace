@@ -63,7 +63,7 @@
 ; lista e retorna uma nova lista com os resultados.
 
 ; Exemplo:
-(set* map (fn map (list func)
+(set* list/map (fn map (list func)
     (block
         (check list "list")
         (check func "closure")
