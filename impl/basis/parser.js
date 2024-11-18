@@ -273,4 +273,4 @@ const parse = (tokens) => {
   return ast;
 };
 
-module.exports = { parse, tokenize };
+module.exports = { parse, tokenize, translateToJS };

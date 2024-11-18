@@ -1,4 +1,4 @@
-const { parse, tokenize } = require("./parser.js");
+const { parse, tokenize, translateToJS } = require("./parser.js");
 const { LispRuntimeError } = require("./error.js");
 const { specialize } = require("./specialize.js");
 const { is, atLeast, between, args, exactly } = require("./check.js");
