@@ -1,8 +1,9 @@
-let { parse, tokenize } = require("./parser.js");
-let { LispRuntimeError } = require("./error.js");
-let { specialize } = require("./specialize.js");
-let { is, atLeast, between, args, exactly } = require("./check.js");
-let { generate } = require("./compiler.js");
+const { parse, tokenize } = require("./parser.js");
+const { LispRuntimeError } = require("./error.js");
+const { specialize } = require("./specialize.js");
+const { is, atLeast, between, args, exactly } = require("./check.js");
+const { generate } = require("./compiler.js");
+const fs = require("fs");
 
 // Runtime
 
