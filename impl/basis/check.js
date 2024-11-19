@@ -1,3 +1,5 @@
+let { LispRuntimeError } = require("./error.js");
+
 const is = (node, typ) => {
   if (node.type != typ) {
     throw new LispRuntimeError(
