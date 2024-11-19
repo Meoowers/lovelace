@@ -65,12 +65,12 @@
             (dict/set defs (at pattern 1) place)
             :true)
         (block
-            (let ((last-elem (last pattern))
+            (let ((last-elem (list/last pattern))
                 (comp (if (string/starts (string last-elem) "&")
                             `(>= (length ,place) ,(length pattern))
                             `(= (length ,place) ,(length pattern))))
-                (rest-conds (list/map-idx pattern (fn (m i) (case/compile-term `(at ,place ,i) m defs)) 0)))
-            (cons (quote and) (cons `(= (type ,place) "list") (cons comp (filter rest-conds cons?))))))))
+                (rest-conds (list/mapi pattern (fn (m i) (case/compile-term `(at ,place ,i) m defs)) 0)))
+            (cons (quote and) (cons `(= (type ,place) "list") (cons comp (list/filter rest-conds cons?))))))))
 
 ; Compiles a term in `case`.
 (defn case/compile-term (place term defs)

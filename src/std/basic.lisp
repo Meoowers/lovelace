@@ -49,6 +49,6 @@
     (if (!= value expected)
         (print (concat "❌\u001b[31m test `" name "` : expected: `" (string expected) "` but got `" (string value) "`\u001b[0m")))))
 
-(defn todo! ()
-    (print "todo!")
+(defn todo! (&args)
+    (eprint "todo!:" (apply concat (cons "" args)))
     (exit 1))
