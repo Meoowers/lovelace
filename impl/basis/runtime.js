@@ -660,7 +660,7 @@ const fn_apply = (args, span) => {
 const fn_eval = (args, span) => {
   atLeast(args, 1, span, "eval");
 
-  let specialized = specialize(args.shift());
+  let specialized = specializeExpr(args.shift());
   let code = generate(__env, specialized, new Map(), specialized.span);
 
   return eval(code);
