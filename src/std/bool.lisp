@@ -39,7 +39,7 @@
 
 ; Macro for a switch/case statement.
 (defm switch (c &arms)
-    (let ((body (list/fold arms `(throw (concat "no match " (string ,c)) ',(span c)) (fn (acc arm) (switch/arm '_condition_ acc arm)))))
+    (let ((body (list/fold arms `(throw (concat "switch: no match " (string ,c)) ',(span c)) (fn (acc arm) (switch/arm '_condition_ acc arm)))))
     `(let ((_condition_ ,c)) ,body)))
 
 ; Helper function for compiling condition arms in `cond`.

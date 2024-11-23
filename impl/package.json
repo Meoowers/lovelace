@@ -1,0 +1,12 @@
+{
+  "name": "lovelace",
+  "version": "1.0.0",
+  "description": "It's just because I want macros and I want to create a svelte inside this lisp and compile this svelte to javascript",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "type": "module",
+  "author": "",
+  "license": "ISC"
+}

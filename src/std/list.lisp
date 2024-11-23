@@ -2,14 +2,6 @@
 
 (require "./src/std/basic.lisp")
 
-; Reduces `list` into a single value by accumulating with function `f`.
-(defn list/fold (list acc f)
-    (check f "closure")
-    (check list "list")
-    (if (cons? list)
-        (list/fold (tail list) (f acc (head list)) f)
-        acc))
-
 ; Like `fold`, but applies `f` from the right side of the list.
 (defn list/foldr (list acc f)
     (check f "closure")
@@ -34,16 +26,6 @@
             (list/includes (tail list) el))
         :false))
 
-; Returns `true` if any element of `list` matches the predicate `pred`.
-(defn list/any (list pred)
-    (check pred "closure")
-    (check list "list")
-    (if (cons? list)
-        (if (pred (head list))
-            :true
-            (list/any (tail list) pred))
-        :false))
-
 ; Returns `true` if all elements of `list` match the predicate `pred`.
 (defn list/all (list pred)
     (check pred "closure")
@@ -53,6 +35,15 @@
             (list/all (tail list) pred)
             :false)
         :true))
+
+(defn list/foreach (list f)
+    (check f "closure")
+    (check list "list")
+    (if (cons? list)
+        (block
+            (f (head list))
+            (list/foreach (tail list) f))
+        list))
 
 ; Like `map`, but passes an index to the function `f`.
 (defn list/mapi (list f index)
